@@ -1,0 +1,1215 @@
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+
+\documentclass{article}
+
+\usepackage[sc]{mathpazo} % Use the Palatino font
+\usepackage[T1]{fontenc} % Use 8-bit encoding that has 256 glyphs
+\linespread{1.05} % Line spacing - Palatino needs more space between lines
+\usepackage{microtype} % Slightly tweak font spacing for aesthetics
+\usepackage{amsmath,amssymb,array}
+
+% \usepackage[english]{babel} % Language hyphenation and typographical rules
+
+\usepackage[margin=1in,columnsep=20pt]{geometry} % Document margins
+\usepackage[hang, small,labelfont=bf,up,textfont=it,up]{caption} % Custom captions
+\usepackage{booktabs} % Horizontal rules in tables
+\usepackage{subcaption} % Sub figures
+\usepackage{graphicx} % better graphics
+\usepackage{float}
+\usepackage[dvipsnames]{xcolor} % colors
+
+% \usepackage{enumitem} % Customized lists
+% \setlist[itemize]{noitemsep} % Make itemize lists more compact
+
+\usepackage{hyperref} % For hyperlinks in the PDF
+\usepackage{nameref} % \Cref command automatically handles figure/table/etc refs
+
+\usepackage{natbib}
+\bibliographystyle{abbrvnat}
+
+% Commands for editing
+\newcommand{\hh}[1]{{\textcolor{orange}{#1}}}
+\newcommand{\svp}[1]{{\textcolor{blue}{#1}}}
+\newcommand{\jz}[1]{{\textcolor{ForestGreen}{#1}}}
+
+\newcommand{\code}[1]{\texttt{{#1}}}
+\newcommand{\pkg}[1]{\texttt{{#1}}}
+\newcommand{\R}{\mathbb{R}}
+
+\defcitealias{pcast}{PCAST,~2016}
+\defcitealias{firearmsToolmarksOverview}{GBI,~2015}
+%----------------------------------------------------------------------------------------
+%	TITLE SECTION
+%----------------------------------------------------------------------------------------
+
+\title{Visual Diagnostics: assessing similarity of breech face impressions} % Article title
+\author{%
+\textsc{Joseph Zemmels}$^1$\thanks{Corresponding author: \href{mailto:jzemmels@iastate.edu}{jzemmels@iastate.edu}\newline This work was partially funded by the Center for Statistics and Applications in Forensic Evidence (CSAFE) through Cooperative Agreement 70NANB20H019 between NIST and Iowa State University, which includes activities carried out at Carnegie Mellon University, Duke University, University of California Irvine, University of Virginia, West Virginia University, University of Pennsylvania, Swarthmore College and University of Nebraska, Lincoln.}\hspace{2em}
+\textsc{Susan Vander Plas}$^2$\hspace{2em}
+\textsc{Heike Hofmann}$^1$\\[1ex] % Your name
+{\footnotesize
+$^1$ Center for Statistics and Applications in Forensic Evidence, Iowa State University;
+$^2$ University of Nebraska Lincoln;
+} %
+}
+\date{\today} % Leave empty to omit a date
+
+%----------------------------------------------------------------------------------------
+
+\begin{document}
+
+% Print the title
+\maketitle
+\begin{abstract}
+\noindent
+Come back to later
+% Dummy abstract text - replace \blindtext with your abstract text
+\end{abstract}
+
+\tableofcontents
+%----------------------------------------------------------------------------------------
+%	ARTICLE CONTENTS
+%----------------------------------------------------------------------------------------
+
+<<setup, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE>>=
+library(knitr)
+library(cmcR) # remotes::install_github("CSAFE-ISU/cmcR@dev")
+library(impressions) # remotes::install_github("jzemmels/impressions")
+library(patchwork)
+library(x3ptools)
+library(raster) #install.packages("raster")
+library(tidyverse)
+theme_set(theme_bw())
+
+# source("code/fiveplot.r")
+
+knitr::opts_chunk$set(
+  fig.path="figures/", echo=FALSE,
+  out.width = '\\linewidth',
+  fig.align = "center",
+  fig.pos = "htbp",
+  strip.white = TRUE,
+  warning=TRUE, #FALSE, # better show warnings in general
+  cache = TRUE)
+
+# load("data/topMatchExampleScans.RData")
+# load("data/patchComparisonFeatures.RData")
+
+nonMatch_processed <- x3ptools::x3p_read("data/K002eG1_processed.x3p")
+reference_processed <- x3ptools::x3p_read("data/K013sA1_processed.x3p") %>%
+  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,resy = nonMatch_processed$header.info$incrementY)
+target_processed <- x3ptools::x3p_read("data/K013sA2_processed.x3p") %>%
+  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,resy = nonMatch_processed$header.info$incrementY)
+@
+
+<<cmcResults, eval=TRUE, cache = TRUE>>=
+# Requires the current dev (as of 2/14/22) version of cmcR
+comparisonResults_full <-
+  map2_dfr(list(target_processed,nonMatch_processed),
+           c("K013sA2","K002eG1"),
+           function(scan,scanName){
+
+             map_dfr(seq(-30,30,by = 3),
+                     function(theta){
+
+                       comparison_allTogether(reference = reference_processed,
+                                              target = target_processed,
+                                              theta = theta,numCells = c(8,8),
+                                              maxMissingProp = .99,
+                                              sideLengthMultiplier = 3,
+                                              returnX3Ps = TRUE)
+
+                       # reference_processed %>%
+                       #   cmcR::comparison_cellDivision(numCells = c(8,8)) %>%
+                       #   dplyr::mutate(refMissingProp = cmcR::comparison_calcPropMissing(cellHeightValues),
+                       #          refMissingCount = map_dbl(cellHeightValues,~ sum(is.na(.$surface.matrix)))) %>%
+                       #   dplyr::filter(refMissingProp < .99) %>%
+                       #   dplyr::mutate(regionHeightValues = cmcR:::comparison_getTargetRegions(cellHeightValues,
+                       #                                                                  target = scan,
+                       #                                                                  theta = theta,
+                       #                                                                  sideLengthMultiplier = 3),
+                       #          targMissingProp = cmcR::comparison_calcPropMissing(regionHeightValues),
+                       #          targMissingCount = map_dbl(regionHeightValues,~ sum(is.na(.$surface.matrix)))) %>%
+                       #   dplyr::filter(targMissingProp < .99) %>%
+                       #   dplyr::mutate(cellHeightValues = cmcR::comparison_standardizeHeights(.data$cellHeightValues),
+                       #                 regionHeightValues = cmcR::comparison_standardizeHeights(.data$regionHeightValues),
+                       #                 cellHeightValues_replaced = comparison_replaceMissing(.data$cellHeightValues),
+                       #                 regionHeightValues_replaced = comparison_replaceMissing(.data$regionHeightValues),
+                       #                 fft_ccf_df = comparison_fft_ccf(cellHeightValues = .data$cellHeightValues_replaced,
+                       #                                                 regionHeightValues = .data$regionHeightValues_replaced),
+                       #                 alignedTargetCell = cmcR::comparison_alignedTargetCell(cellHeightValues = cellHeightValues,
+                       #                                                                        regionHeightValues = regionHeightValues,
+                       #                                                                        target = scan,
+                       #                                                                        theta = theta,
+                       #                                                                        fft_ccf_df = fft_ccf_df),
+                       #                 jointlyMissing = map2_dbl(cellHeightValues,alignedTargetCell,~ sum(is.na(.x$surface.matrix) & is.na(.y$surface.matrix))),
+                       #                 pairwiseCompCor = map2_dbl(cellHeightValues,alignedTargetCell,
+                       #                                            ~ cor(c(.x$surface.matrix),c(.y$surface.matrix),
+                       #                                                  use = "pairwise.complete.obs"))) %>%
+                       #   tidyr::unnest(.data$fft_ccf_df) %>%
+                       #   dplyr::mutate(theta = theta) %>%
+                       #   dplyr::select(-c(cellHeightValues_replaced,regionHeightValues_replaced,regionHeightValues))
+                     }) %>%
+               dplyr::mutate(originalMethod = decision_CMC(cellIndex = cellIndex,x=x,y=y,theta=theta,corr=pairwiseCompCor),
+                      comparisonName = paste0("K013sA1 vs. ",scanName))
+
+           })
+
+comparisonResults <- comparisonResults_full %>%
+  dplyr::group_by(comparisonName,cellIndex) %>%
+  dplyr::filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+  dplyr::ungroup()
+
+save(comparisonResults,file = "data/comparisonResults.RData")
+@
+
+<<cmcResults_load>>=
+load("data/comparisonResults.RData")
+@
+
+
+\section{Background and Introduction}
+
+% \hh{XXX Remember to get rid of all of the modal verbs. Yes, 'we can use', but that doesn't say that we actually do. So be specific. and say 'we use X'. Similarly, get rid of all of the escapes outside of the discussion - like 'it seems reasonable'}
+%
+%
+
+
+
+% \subsection{Cartridge Cases and Breech Face Impressions}
+
+% \hh{XXX motivate why forensics needs statistics in the first place. }
+
+Forensic examinations are intended to provide an objective assessment of the probative value of a piece of evidence.
+Typically, this assessment of probative value is performed by a forensic examiner who visually inspects the evidence to determine whether it matches evidence found on a suspect.
+The process by which an examiner arrives at their evidentiary conclusion is largely opaque and has been criticized \citepalias{pcast} because its subjectivity does not allow for an estimation of error rates.
+In response, \citet{nas} pushed to augment subjective decisions made by forensic examiners with automatic, statistically-founded algorithms that objectively assess evidence and can be explained during court testimony.
+These algorithms enable the quantification of an examiner's uncertainty by measuring the probative value of a piece of evidence.
+
+A \emph{cartridge case} (see \autoref{fig:cartridgeCaseBullet}) is the portion of firearm ammunition that encases a projectile (e.g., bullet, shots, or slug) along with the explosive used to propel the projectile through the firearm.
+When a firearm is discharged, the projectile is propelled down the barrel of the firearm, while the cartridge case is forced towards the back of the barrel.
+The base of the cartridge case (\autoref{fig:cartridgeCaseBase}) strikes the back wall, known as the \emph{breech face}, of the barrel with considerable force, thereby imprinting any markings on the breech face onto the cartridge case and creating the so-called \emph{breech face impressions} (see \autoref{fig:breechFaceImpressions}).
+These markings have been suggested to be unique to a firearm and are used in forensic examinations to determine whether two cartridge cases have been fired by the same firearm.
+
+% During a forensic examination, two pieces of ballistic evidence are placed under a \emph{comparison microscope}.
+% Comparison microscopes allow for a side-by-side comparison of two objects within the same viewfinder, as seen in \autoref{fig:ccPair_combined}. \hh{XXX make sure to attribute the picture}
+% \hh{XXX - also, we need to literally zoom out of this picture - we need to help the reader to orient themselves, i.e. build an image including this comparison that shows some cartridge cases, the top of a cartridge case, and some indication that we zoom into it. We don't need to be able to do a comparison in the side by side view, we just want to sketch out the process.}
+% A pair of breech face images is aligned along the thin black line in the middle of the images.
+% The degree to which these breech face markings can be aligned is used to determine whether the two cartridge cases came from the same source; i.e., were fired from the same firearm.
+% These breech face impressions are considered to be a firearm's unique "fingerprint" left on a cartridge case \citep{firearm_id_thompson}.
+
+\begin{figure}[hbt]
+\centering
+\includegraphics[width=\textwidth]{images/cartridgeCaseZoomIn.png}
+\subfloat[\label{fig:cartridgeCaseBullet} Fired cartridge case and bullet \citep{firearm_id_thompson}]{\hspace{.27\linewidth}}
+\hspace{.06\linewidth}
+\subfloat[\label{fig:cartridgeCaseBase} Base of the cartridge case that comes into contact with the breech face of the firearm \citep{firearmsToolmarksOverview}]{\hspace{.273\linewidth}}
+\hspace{.07\linewidth}
+\subfloat[\label{fig:breechFaceImpressions}  Zoom into the \emph{primer} region showing breech face impressions \citep{fadul}]{\hspace{.31\linewidth}}\newline
+\caption{\label{fig:cartridgeCaseZoomIn} \hh{XXX some space to say something more}}
+\end{figure}
+%
+% <<eval=FALSE,echo=FALSE,fig.cap='\\label{fig:cartridgeCaseZoomIn} From left to right, a fired cartridge case and bullet \\citep{firearm_id_thompson}, the base of a fired cartridge case \\citep{firearmsToolmarksOverview}, the cartridge case primer containing the breech face impressions commonly used to match two cartridge cases \\citep{fadul}.',fig.pos='htbp',out.width="\\textwidth", fig.align = 'center'>>=
+% # knitr::include_graphics("images/sketch-intro-picture.png")
+% knitr::include_graphics("images/cartridgeCaseZoomIn.png")
+% @
+%
+
+% \begin{figure}
+% \centering
+% \begin{subfigure}[b]{0.3\textwidth}
+% \caption{Fired Cartridge Case and Bullet \citep{firearm_id_thompson}}
+% \includegraphics[width=\textwidth]{images/cartridgeCaseBullet.png}
+% \label{fig:cartridgeCaseBullet}
+% \end{subfigure}
+% \begin{subfigure}[b]{0.26\textwidth}
+% \caption{Base of a fired cartridge case \citep{firearmsToolmarksOverview}}
+% \includegraphics[width=\textwidth]{images/cartridgeCaseBase.png}
+% \label{fig:cartridgeCaseBase}
+% \end{subfigure}
+% \begin{subfigure}[b]{0.3\textwidth}
+% \caption{The cartridge case primer containing the breech face impressions commonly used to match two cartridge cases \citep{fadul}}
+% \includegraphics[width=\textwidth]{images/breechFaceImpressions.png}
+% \label{fig:breechFaceImpressions}
+% \end{subfigure}
+% \caption{Illustration of the location of the breech face impressions on a fired cartridge case.}
+% \label{fig:cartridgeCaseZoomIn}
+% \end{figure}
+
+% \hh{XXX We measure breech faces using confocal light microscopy and store them as  3d topographic surface matrices, i.e. relative height values in a regular grid of X and Y.}
+
+% We measure the surface of a cartridge case using confocal light microscopy and store the 3D topographic information in a \emph{surface matrix}.
+We measure the surface of a cartridge case using a TopMatch-3D High-Capacity Scanner \citep{topmatch} by Cadre Forensics\texttrademark.
+This scanner collects images under various lighting conditions of a gel pad into which the cartridge case surface is impressed and combines these images into a regular 2D array called a \emph{surface matrix}. Examples of two such surface matrices are shown in \autoref{fig:referenceAnnotated} and \autoref{fig:targetAnnotated}.
+\hh{The physical dimensions of these objects are about 5.5 $mm^2$ captured at a resolution of 1.84 microns per pixel (1000 microns equals 1 mm). }
+Each element of the surface matrix corresponds to the height of the impressed gel at that location. \hh{The nominal resolution for height measurements depends on the viscosity of the gel and is reported to be better than 1 micron.}
+The breech face impression regions have been manually annotated (in red).
+Using this manual annotation, we isolate the breech face impression region.
+Note that this introduces structurally missing values into the scan.
+
+\autoref{fig:processedSideBySide} shows the isolated breech face impression regions where the height values of the surface have been mapped to a diverging purple (low) to orange (high) color scale and missing values are shown in gray. \hh{Note that due to the scanning process the physical location of any measured values is relative, but the relationship of the measurements to each other is fixed. This means that we can, without affecting any structures, translate and even rotate measurements in 3d space. For the purpose of making scans comparable to each other, the scan surfaces are translated into XXXX what is being done exactly?} \jz{XXX I'm not sure what step in the algorithm you're referring to here. By "translated into," do you mean a horizontal/vertical shift? }\hh{Yes, I used translation in a mathematical sense here, so any shift in x, y or z direction. Sometimes we do these steps implicitly rather than in an explicit ... this is a step way. e.g. by changing from a grid to matrix we lose the physical extensions in x and y. Those are replaced by integer values first, and then rescaled into micron measurements later. That is an implicit translation in x and y. shifting a scan into a mean zero is an explicit translation, just as shifting a breech face impression is. I would very much like to use a robust estimate of the 2d breech face surface as the zero plane.} \hh{their mean and any tilts in xy direction are removed. While those tilts might stem from a small misalignments of the breech face, a bigger source of variability stems from a slight misalignment during the scanning. }
+
+\subsubsection*{Notational Conventions}
+
+Surface matrices are generally \cite{x3p} described in the form of matrices. For the purpose of notational simplicity, we will assume that the matrices are square, i.e. $A \in \R^{d \times d}$ (for some $d > 0$) and that the mathematical matrix notation of $A = \left(a_{ij} \right)_{1 \le i, j \le d}$ corresponds directly to the image representation, i.e. the element $a_{11}$ is the element in the top left corner of a scan image as shown in \autoref{fig:annotatedBFImpressions}.
+
+\hh{Further we will assume that two different scans are taken with the same dimensions, so their corresponding surface matrices $A$ and $B$ have the same dimensions. Note, that any assumption of sizing of matrices are easily enforced by  padding with additional missing values. Due to the presence  of (structural) missing values around the breech face impression, additional padding does not interfere with the structure of the scan. }
+\hh{For the sake of readability, we will refer to scan and surface matrix of the scan interchangeably.}
+\hh{For the purpose of dealing with missing values mathematically, we are adapting standard matrix algebra} as follows: if an element of either matrix $A$ or $B$ is missing, then any element-wise operation including this element is also missing, otherwise standard matrix algebra holds.
+\hh{For algebraic addition of matrices $A$ and $B \in \R^{d \times d}$ we define the addition operator to be:}
+\[
+A \oplus_{\tiny{NA}} B = \left( a_{ij} \oplus_{\tiny{NA}} b_{ij} \right)_{1 \le i,j \le d} :=
+\begin{cases}
+    a_{ij} + b_{ij} & \text{ if both } a_{ij} \text{ and } b_{ij} \text{ are numbers}\\
+    \text{NA } & \text{ otherwise}
+\end{cases}
+\]
+\hh{Operations $\ominus_{\tiny{NA}}$ as well as all comparisons are defined similarly. For the purpose of readability, we will use the standard algebraic operators $+, -, >, <, ...$ and apply the extended operations as defined above.}
+
+% The matrices $A$ and $B$ have the same dimension, so standard matrix algebra holds for non-missing elements.
+% We adapt standard matrix algebra to admit missing values as follows: if an element of either $A$ or $B$ is missing, then any element-wise operation including this element is also missing.
+% For example, if the $(r,c)$-th element of either $A$ or $B$ is missing, then the $(r,c)$-th element of $A + B$ will be missing also.
+% For the rest of this manuscript, we use bracket notation to refer to the $(r,c)$-th element of a matrix; e.g., $A$. \hh{XXX could we not do this? It's really hard to read. I realize that it's because of the way $A$ is defined. How about we use uppercase notation for matrices and lower case notations for elements?}
+% When needed, we will use subscripts to distinguish different cell pairs; e.g., $(A_1, B_1)$ refers to the 3, 8 cell pair shown in \autoref{fig:cmcPlot_match} while $(A_2, B_2)$ refers to the 1, 4 cell pair.
+
+
+
+% These surface matrices are commonly stored in the ISO standard x3p file format that contain supplementary metadata \citep{ISO25178-72}.
+
+<<matchPairExample, eval=TRUE,include=FALSE>>=
+data.frame(x=1:2,y=1:2,value=c(1,1)) %>%
+  x3ptools::df_to_x3p() %>%
+  x3ptools::x3p_image()
+
+x3ptools::read_x3p("data/NIST_K013sA1.x3p") %>%
+  x3ptools::x3p_sample(m=4) %>%
+  x3ptools::x3p_rotate() %>%
+  x3ptools::x3p_flip_y() %>%
+  x3ptools::x3p_rotate(angle = 270) %>%
+  x3ptools::x3p_image(size = c(750,750),zoom=.75)
+x3ptools::x3p_snapshot(file = "figures/topMatchAnnotatedReference.png")
+
+x3ptools::read_x3p("data/NIST_K013sA2.x3p") %>%
+  x3ptools::x3p_sample(m=4) %>%
+  x3ptools::x3p_rotate() %>%
+  x3ptools::x3p_flip_y() %>%
+  x3ptools::x3p_rotate(angle = 270) %>%
+  x3ptools::x3p_image(size = c(750,750),zoom=.75)
+x3ptools::x3p_snapshot(file = "figures/topMatchAnnotatedTarget.png")
+
+# reference <- topMatchExampleScans %>%
+#   filter(scanName == "K013sA1") %>%
+#   pull(processedScan) %>%
+#   .[[1]] %>%
+#   x3ptools::x3p_rotate(angle=90)
+
+# target <- topMatchExampleScans %>%
+#   filter(scanName == "K013sA2") %>%
+#   pull(processedScan) %>%
+#   .[[1]] %>%
+#   x3ptools::x3p_rotate(angle=90)
+
+# reference_processedScaled <- reference_processed
+# reference_processedScaled$surface.matrix <- reference_processedScaled$surface.matrix*1e6
+# target_processedScaled <- target_processed
+# target_processedScaled$surface.matrix <- target_processedScaled$surface.matrix*1e6
+
+x3pPlts <- cmcR::x3pListPlot(list("K013sA1" = reference_processed,#Scaled,
+                               "K013sA2" = target_processed)#Scaled)
+                             ,type = "list",na.value = "gray65") %>%
+  map(~ {
+
+    . + theme(legend.position = "none")
+
+  })
+
+
+x3pCombinedPlt <- (x3pPlts[[1]]+
+          theme(plot.title = element_text(vjust = -32,
+                                          hjust = .6,
+                                          size = 18))) /
+  (x3pPlts[[2]] +
+     theme(plot.title = element_text(vjust = -32,
+                                     hjust = .6,
+                                     size = 18)))
+
+ggsave(plot = x3pCombinedPlt,filename = "figures/referenceTargetSideBySide.png",bg ="white")
+
+knitr::plot_crop("figures/referenceTargetSideBySide.png")
+
+knitr::plot_crop("figures/topMatchAnnotatedReference.png")
+knitr::plot_crop("figures/topMatchAnnotatedTarget.png")
+@
+
+
+\begin{figure}
+\centering
+\begin{subfigure}[c]{0.35\textwidth}
+K013sA1 \hfill\newline
+\includegraphics[width=\textwidth]{figures/topMatchAnnotatedReference.png}
+\caption{Cartridge case scan K013sA1 with breech face (BF) impressions manually annotated in red.}
+\label{fig:referenceAnnotated}
+\end{subfigure}
+\begin{subfigure}[c]{0.2\textwidth}
+\includegraphics[width=\textwidth]{figures/referenceTargetSideBySide.png}
+\caption{Processed surface matrices.}
+\label{fig:processedSideBySide}
+\end{subfigure}
+\begin{subfigure}[c]{0.35\textwidth}
+K013sA2 \hfill\newline
+\includegraphics[width=\textwidth]{figures/topMatchAnnotatedTarget.png}
+\caption{Cartridge case scan K013sA2 with breech face (BF) impressions manually annotated in red.}
+\label{fig:targetAnnotated}
+\end{subfigure}
+\caption{Raw scans (left and right) and processed versions of the surface matrices (in the middle) for a pair of cartridge cases fired in the same handgun \cite[Ruger SR9, Gun A1, SerialNo 331-96383;][]{Baldwin}.}
+\label{fig:annotatedBFImpressions}
+\end{figure}
+
+
+% Cartridge case scans are commonly stored in the ISO standard x3p file format \citep{ISO25178-72}.
+%x3p is a container format which consists of a single surface matrix representing the height value of the breech face surface and metadata concerning the parameters under which the scan was taken (size, resolution, creator, microscope, and microscopy software versions etc.).
+%Elements of a surface matrix for which the breech face surface is not recorded are represented with the missing data type \texttt{NA}.
+
+
+% \jz{Gives a broad \hh{very high-level 10k foot fly-over} overview of the CMC method}
+\subsubsection*{CMC method}
+
+\jz{XXX if we're using $i,j$ subscripts to refer to specific elements of a matrix, how do we want to refer to a specific cell in the overall partition?}
+\hh{I'm hoping that we can get away with upper and lower case letters - lower case for specific elements in a matrix, upper case letters for sub matrices.}
+
+\jz{XXX Later on, we refer to specific elements of a sub matrix. As such, I think it would be good to distinguish the cell index (e.g., 1,1 through 8,8) from matrix element indices. I'm going to use $r,c$ to denote the cell indices.}
+
+
+\citet{song_proposed_2013} introduced an objective technique for comparing two cartridge cases called the Congruent Matching Cells (CMC) method.
+Since then, there have been numerous extensions and changes to the originally proposed algorithm \citep{song_3d_2014,tong_fired_2014,tong_improved_2015,chen_convergence_2017}.
+All of these algorithms follow the same, general structure for comparing a "reference" scan $A$ to a "target" scan $B$:
+
+
+\begin{enumerate}
+
+\item Create a non-overlapping partition of reference scan $A \in \R^{d \times d}$ of (usually square) cells  $A_{rc}$ for $1 \le r,c \le k$ covering the scan surface. Generally, $k = 7$ or 8, see also the left plot in \autoref{fig:cmcPlot_match}. For simplicity, assume $k$ is a factor of $d$
+
+\item Registration step: for each of the cells  $A_{i,j}$, $1 \le i,j \le k$
+identify the rotation  $\theta \in [-180,180]$ degrees and translation $(dx,dy) \in \left[-d,d\right]^2$  at which this cell is most closely matched on scan $B$. Usually cross-correlation is used as an optimization criterion:
+\[
+\left( \hat{\theta}_{ij}, \widehat{dx}_{ij}, \widehat{dy}_{ij} \right) = \arg \max_{\theta, dx, dy} \text{Opt} (A_{ij}, B).
+\]
+At this optimized registration, we obtain a mated cell $B_{ij}$ of the same dimension as $A_{ij}$.
+
+% \item \hh{XXX define a function $\mathcal{C}$ that takes a pair of cells and returns a mapping to [0,1] where 0 means no match and 1 means a match. That will take us away from the binary approach of NIST but include their approach. }
+% \hh{Note that $\mathcal{C}$ in the case of the older algorithms of NIST is a binary algorithm  based on hard thresholds for $\theta$, $dx$, and  $dy$. Different papers use different thresholds (typically based on the median registration across all cells of a set of cartridge case comparisons).}
+\item For each cell pair $(A_{ij}, B_{ij})$, define classification function $\mathcal{C}:$ $(A_{ij},B_{ij}) \to [0,1]$ where 0 and 1 refer to a non-match and match classification, respectively. Note that previous versions of the CMC algorithm define functions $\mathcal{C}$ that all perform binary $\{0,1\}$ classification.
+% Classify cells as Congruent Matching Cells (CMCs) if their $(\theta,dx,dy)$ values are "close" (defined by some user-defined distance metric and threshold) to the reference registration $(\theta,dx,dy)$ value (typically the median registration across all cells).
+
+\end{enumerate}
+
+\hh{Note that generally, the classification function ${\cal C}$ is not symmetric, i.e. ${\cal C}(A,B) \neq {\cal C}(B,A)$. }
+\citet{tong_improved_2015,chen_convergence_2017} introduce methods that repeat this procedure with the roles reversed: scan $B$ is partitioned into cells and compared to $A$.
+Their methods include logic for combining the results from these two comparison directions. \hh{In this instance, ${\cal C}(A,B) = {\cal C}(B,A)\ \  \forall A, B$.}
+
+
+The results shared in this manuscript are calculated using the CMC implementation of the cmcR R package \citep{cmcR}.
+\autoref{fig:cmcPlot_match} depicts where each cell in (reference) scan K013sA1 attains its maximum correlation in (target) scan K013sA2.
+Out of all of the cells covering the reference scan, 39 cells contain parts of the breech-face. Out of those, 11 cells
+are classified as Congruent Matching Cells according to the method proposed by \citet{song_proposed_2013} with parameters $T_{dx} = T_{dy} = 20$ units, $T_{\theta} = 6^{\circ}$, and $T_{CCF} = 0.5$ (shown in blue in \autoref{fig:cmcPlot_match}). \hh{While these two cartridge cases were fired from the same handgun, quite a few of the cell pairs are mis-matched and end up }  more randomly distributed \hh{across the target scan}.
+Some of the cells in the target scan align outside of the surface matrix's dimensions.
+To handle these cells, we assume boundary conditions that infinitely extend the structurally missing values beyond the boundary of the surface matrix.
+
+\hh{XXX There are a lot of mis-aligned cells, bringing the count of the CMC algorithm down. The cell count is also very sensitive to the exact parametrization of the algorithm. }
+
+<<cmcPlot, eval=TRUE,message=FALSE,warning=FALSE,results = 'hide'>>=
+matchingCMCPlt <- cmcR::cmcPlot(
+  reference = reference_processed,
+  target = target_processed,
+  cmcCol = "originalMethod",
+  cmcClassifs = comparisonResults %>%
+    filter(comparisonName == "K013sA1 vs. K013sA2")
+  )
+
+design <-
+  "AB"
+
+cmcPltCombined <-
+  patchwork::wrap_plots(
+    matchingCMCPlt[[1]] +
+      theme(strip.text = element_blank(),
+            plot.margin = margin(0,0,-20000,0),
+            plot.subtitle = element_text(hjust = .5,size = 12,vjust=-50)) +
+      annotation_custom(grid::textGrob(label="Reference\nK013sA1")),
+    #  labs(subtitle = "Reference: K013sA1"),
+    matchingCMCPlt[[2]] +
+      theme(strip.text = element_blank(),
+            plot.margin = margin(0,0,-20000,0),
+            plot.subtitle = element_text(hjust = .57,size = 12,vjust=-50)) +
+      annotation_custom(grid::textGrob(label="Target\nK013sA2", x = unit(0.6, "npc"))),
+    #  labs(subtitle = "Target: K013sA2"),
+    design = design,widths = c(.88,1)) +
+  patchwork::inset_element(matchingCMCPlt[[3]],left = -.85,bottom = -.6,right = 1,top = 1,align_to = "full")
+
+ggsave('figures/cmcPlot.png', plot = cmcPltCombined,
+       width = 7.53*.75, height = 6.67*.75)
+knitr::plot_crop("figures/cmcPlot.png")
+@
+
+<<echo=FALSE,fig.cap='\\label{fig:cmcPlot_match} Congruent Matching Cell classifications from comparing two matching cartridge cases. CMCs are shown in blue and correspond to reference scan cells that reach a consensus on the registration angle and translation in the target scan. Non-CMCs are shown in red and represent the registration at which the registration cells attain their largest CCF value across all rotations and translations considered.',fig.pos='htbp',out.width=".8\\textwidth", fig.align = 'center', cache=FALSE>>=
+knitr::include_graphics("figures/cmcPlot.png")
+@
+
+\hh{XXX Great! It feels like we have reached the end of the introduction. }
+\hh{todo list: (1) problem statement, (2) outline what this paper is about and order in which we go about it. XXX We probably have to go back to this a couple times. }
+
+\jz{Problem statement (draft): Can we characterize when a cartridge case alignment fails?}
+
+\jz{Even among matching cartridge case pairs, we have found results like those shown in \autoref{fig:cmcPlot_match}, where only a small number of the total cells are classified as CMCs, to be quite common.
+An underlying assumption of the CMC methodology is that many reference cells should find the "correct" registration in a matching target scan.
+However, it can be difficult to determine why a particular cell did or did not register correctly.
+For example, did cell 6, 2 of scan K013sA1 in \autoref{fig:cmcPlot_match} actually find its match in scan K013sA2, or was it pure luck that it was classified as a CMC?
+Conversely, although the aligned cells 8, 5 and 8, 7 in scan K013sA2 appear to be located in the correct spot, why was their estimated rotation so far off from that of cells 8, 4 and 8, 6?
+In this paper, we introduce diagnostic tools that can be used to visually and numerically characterize the quality of alignment of cells.
+We also demonstrate how the numerical diagnostics can be used as features to classify matching and non-matching cartridge case pairs.}
+
+\jz{Paper outline (draft):}
+
+\begin{itemize}
+\item \jz{Visual Diagnostics: discuss 5 plot comparison tool}
+
+\item \jz{Visual Diagnostic Feature Extraction: introduce numerical features that characterize the 5 plot comparison}
+
+\item \jz{Results: show distribution of features and classification (or match probability?) results from a fitted model (random forest, decision tree, etc.)}
+
+\item \jz{Discussion}
+
+\item \jz{Conclusion}
+\end{itemize}
+
+\section{Visual Diagnostics}
+
+
+\subsection{Complementary Comparison Plots}
+\hh{XXX I think for the purpose of this section we get rid of the ij in the matrices describing cells. }
+
+\jz{XXX since we've already used $A$ and $B$ to refer to entire scans, I think it might be confusing to re-use it to refer to specific cells}
+
+Let $A$ be a reference cell matrix and $B$ its target mate as defined above; each of dimension $r \times c$.
+% \jz{As a first step, it is common \hh{XXX where do you get the 'common' from? - I agree that setting the mean to zero is not changing the values.The standard deviation is a different thing completely. And applying the standardization individually is wiping out differenes between small and large impressions. If that is what you are doing, we need to check what effect this has. } to (independently) standardize each cell matrix by subtracting the mean from each element and dividing each element by the standard deviation.
+% We adopt this convention here} and consider the following operations that all produce an $n \times n$ matrix.
+Consider the following operations.
+
+% \jz{XXX to Heike's point below: I think around here we could mention that we standardize the surface matrices as a first step. This would motivate zero being relative to the individual cell and equal to the mean value of a surface matrix.}
+%
+\hh{XXX Surface values are relative (zero is set arbitrarily). We need to mention this somewhere and clarify how we address that. XXX}
+
+\begin{itemize}
+
+\item The observed value indicator function $O(x) = I(x \text{ is a number})$ %\hh{XXX that should be defined here - additionally emphasises the importance of these missing values.}
+\item The (element-wise) \emph{average} of $A$ and $B$, denoted $\mathcal{A}(A,B)$, is given by
+\begin{align*}
+\mathcal{A}(A,B) = \frac{1}{2}(A + B).
+\end{align*}
+
+% a definition of an absolute differencing operator isn't even needed with the lowercase vs. uppercase notation
+% \item The (element-wise) \emph{absolute difference} of $A_{rc}$ and $B_{rc}$, denoted $\mathcal{D}(A_{rc},B_{rc})$, is given by
+% \begin{align*}
+% \mathcal{D}(A,B) = (|a_{ij} - b_{ij}|)_{1 \leq i,j \leq n}
+% \end{align*}
+\item The filtering function is a mechanism that allows us to mathematically incorporate thresholds in the data analysis pipeline. We define an (element-wise) \emph{filter function} $\mathcal{F}$ to be a function that maps real-valued matrices  to real-values matrices enhanced by missing values based on a condition $cond: \R^{r \times c} \mapsto \{TRUE, FALSE\}^{r \times c}$
+\[
+\mathcal{F}_{cond}: \R^{r \times c} \mapsto \left(\R \cup \{NA\}\right)^{r \times c}.
+\]
+For matrix $X \in \R^{r \times c}$ and a condition $cond$  the filter matrix $\mathcal{F}_{cond}(X)$ is defined as
+\[
+\mathcal{F}_{cond} (X) = \left( f_{ij}\right)_{1 \le i \le r, 1 \le j \le c} = \begin{cases}
+x_{ij} &\text{if } cond \text{ is } TRUE \text{ for } i,j\\
+NA &\text{otherwise}.  \\
+\end{cases}
+\]
+Note that the way matrices are defined here, ${\cal F}$ is really a mapping from the space of matrices into itself.
+
+Of particular interest in this application is the (absolute) difference between pairs of scans (and pairs of sub-matrices from scans). Here, ${\cal F}_{|A - B| \le \tau}\left( \frac{1}{2} (A + B) \right)$ contains the filtered portion where the pair of scans $A$ and $B$ deviates at most by $\tau$, while filtered matrices ${\cal F}_{|A - B| > \tau}(A)$ and ${\cal F}_{|A - B| > \tau}(B)$ contain elements in each scan that have a distance of more than $\tau$ from each other.
+
+% \hh{XXX If you are ok with this change, we can make a few changes to the notation below. THis should help with readability.}
+% \jz{XXX that looks good! I will change the notation below}
+
+% \item An (element-wise) \emph{absolute difference filter} is denoted $\mathcal{F}_{|A-B| \leq \tau}(A,B;\tau)$ for $\tau > 0$ where the $(i,j)$-th element is given by
+% \begin{align*}
+% f_{ij} =
+% \begin{cases}
+% 1 &\text{if } |a_{ij} - b_{ij}| \leq \tau \\
+% 0 &\text{if } |a_{ij} - b_{ij}| > \tau \\
+% \end{cases}
+% \end{align*}
+% for each $1 \leq i,j \leq n$.
+% $\mathcal{F}_{|A-B| \leq \tau}(A,B;\tau)$ is an indicator matrix (possibly with missing values) representing whether the element-wise absolute difference between $A$ and $B$ is within some threshold $\tau$.
+
+\end{itemize}
+
+% \jz{XXX Note for the next paragraph: I'm currently using the set notation to denote that the filtered element-wise average essentially consists of two matrices: one containing the averages and another indicator matrix indicating which elements are "filtered" and which are not.
+% Said another way, it's a data frame with 4 columns: row, col, the element-wise average at element [row,col], and an indicator column to say whether element [row,col] is filtered.
+% I don't know what the "correct" tensor notation would be to represent this $n \times n \times 2$ tensor.
+% The same holds for the filtered differences. XXX}
+
+The complementary comparison plot partitions a pair of cells into "similarities," defined to be a filtered element-wise average of the two matrices, and "differences," defined to be a filtered version of the original cells using a threshold $\tau = 1.4$ equal to the standard deviation of surface values across both matrices (ignoring missing values).
+\autoref{fig:fivePlotComparison} shows an example of a complementary comparison plot for a particular pair of aligned cells between cell 3, 8 in scans K013sA1 and K013sA2.
+The two aligned cells, $A_{38}$ and $B_{38}$, respectively, are shown in the first column of the figure where the normalized surface values are mapped to a diverging purple/orange color scale.
+The middle column depicts the filtered element-wise average where the values of $\mathcal{F}_{|A_{38} - B_{38}| \leq 1.4}\left(\frac{1}{2}(A_{38} + B_{38})\right)$ are mapped to the same color scale except for filtered elements which are shown in light gray.
+The right column shows the surface values of $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}\left(A_{38}\right)$ and $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}\left(B_{38}\right)$ where filtered elements are again shown in light gray.
+% Note that the filtered elements between the filtered element-wise average and the filtered differences are disjoint.
+Missing values are shown in all five of these plots in dark gray.
+As intended, the visualizations of the filtered element-wise average and differences emphasize similarities and differences between the aligned cells, respectively.
+% More precisely, for two matrices $A$ and $B$ and a threshold $\tau$, the \emph{filtered element-wise average} consists of $\{\mathcal{A}(A,B), \mathcal{F}_{|A-B| \leq \tau}\left(\frac{1}{2}(A + B)\right)\}$.
+% The \emph{filtered differences} are given by $\{A, \pmb{1}_{n \times n} - \mathcal{F}_{|A-B| \leq \tau}(A)\}$ and $\{B, \pmb{1}_{n \times n} - \mathcal{F}_{|A-B| \leq \tau}(B)\}$.
+
+% \autoref{fig:fivePlotComparison} shows an example of a complementary comparison plot for a particular pair of aligned cells between cell 3, 8 in scans K013sA1 and K013sA2.
+% The two aligned cells, $A_{38}$ and $B_{38}$, respectively, are shown in the first column of the figure where the normalized surface values are mapped to a diverging purple/orange color scale.
+% The middle column depicts the filtered element-wise average where the values of $\mathcal{A}(A_{38},B_{38})$ are mapped to the same color scale except for elements for which $\mathcal{F}_{|A-B| \leq \tau}\left(\frac{1}{2}(A + B)\right)$ is 1 are shown in light gray.
+% The right column shows the surface values of $A_{38}$ and $B_{38}$ with elements for which $\mathcal{F}_{|A-B| \leq \tau}\left(A\right)$ is 0 shown in light gray.
+% Missing values are shown in all five of these plots in dark gray.
+% As intended, the visualizations of the filtered element-wise average and differences emphasize similarities and differences between the aligned cells, respectively.
+
+
+<<matchCCP_combine, eval=TRUE,cache=TRUE,include=FALSE>>=
+patchComparisonPlts_combined <- fiveplot(comparisonResults,"K013sA1","K013sA2","3, 8")
+
+ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot.png",
+       width = 7,height = 7,bg = "white")
+knitr::plot_crop("figures/complementCompPlot.png")
+@
+
+<<matchCCP_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison} The complementary comparison plot for two cells from the comparison between cell 3, 8 of scan K013sA1 and its aligned mate in scan K013sA2. The left column shows the surface values of these two cells. Note that non-overlapping pixels are shown in dark gray in the bottom left plot. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
+knitr::include_graphics("figures/complementCompPlot.png")
+@
+
+
+\section{Visual Diagnostic Feature Extraction}
+
+\jz{List of features so far XXX}
+\begin{itemize}
+
+\item \jz{Amount of overlap between the two aligned cells. XXX should this be \# of elements in their intersection over \# of elements in their union? XXX}
+
+\item \jz{Average value amongst the filtered element-wise averages.}
+
+\item \jz{XXX what's a better feature to calculate from the filtered element-wise average? XXX}
+
+\item \jz{Correlation between the filtered differences plot}
+
+\item \jz{XXX Some sort of weighted difference between the two scans. If we have a difference of 10, say, we care less if this is a difference between 15 and 25, which point in the same "direction", than -5 and 5. Think of what this weighting function might look like. XXX}
+
+\item \jz{XXX Broadly, we want to ensure that cells are classified as CMCs/non-CMCs *for the right reason.* Using the "aligned ants" plot, determine which areas of the scan(s) are "influential" in that they attract a large number of cells. This will help us "weigh" whether a particular cell's classification as a CMC should be trusted (e.g., if there are many cells that attract to that spot, then perhaps we should trust it less). Conversely, think about a way to determine when a cell is classified as a non-CMC, yet still is extremely similar to its aligned cell (perhaps this is what the complementary comparison plot features measure?). Not all areas of the scan(s) are of the same "importance," so figuring out what "important" means will help us explain why a cell is classified as a CMC while another isn't.XXX}
+
+
+\end{itemize}
+
+We assume that well-aligned cells from truly matching cartridge case pairs will on average be more similar than aligned cells from non-matching cartridge case pairs.
+Below, we summarize a set of features used to quantify this notion of similarity.
+
+\jz{Amount of overlap between the two aligned cells = the number of elements that are observed in both $A$ and $B$ divided by the number of elements that are observed in either $A$ or $B$ (intersection/union)}
+
+% Define the observed value indicator function $O(x) = I(\text{$x$ is a number})$.
+Then define the proportion of overlapping elements as the size of the intersection of observed values divided by the size of the union of observed values between $A$ and $B$:
+\begin{align*}
+p_{overlap} = \frac{\sum_{i=1}^r \sum_{j=1}^c O(a_{ij}) O(b_{ij})}{\sum_{i=1}^r \sum_{j=1}^c O(a_{ij}) + O(b_{ij}) - O(a_{ij}) O(b_{ij})}.
+\end{align*}
+We assume that the surface values in well-aligned cells from truly matching cartridge cases will overlap more than in non-matching cells.
+
+\jz{Correlation between the filtered differences plot}
+
+For two matrices $A$ and $B$, we also consider the correlation between the filtered matrices:
+\begin{align*}
+c_f = Corr(\mathcal{F}_{|A-B| > \tau}(A),\mathcal{F}_{|A-B| > \tau}(B)).
+\end{align*}
+The correlation is calculated by vectorizing $\mathcal{F}_{|A-B| > \tau}(A)$ and $\mathcal{F}_{|A-B| > \tau}(B)$ and treating missing values by case-wise deletion.
+We assume that the correlation between the filtered matrices will be larger if $A$ and $B$ are well-aligned matching pairs than if they are non-matching pairs.
+Said another way, even in regions where matching cells are different from each other, we assume that the height values will follow similar trends.
+This can occur due to variability in the amount of contact between a cartridge case and the breech face across multiple fires from the same firearm.
+
+We also consider features based on the elements of the absolute difference filters $\mathcal{F}_{|A-B| > \tau}(A)$ and $\mathcal{F}_{|A-B| > \tau}(B)$.
+The left of \autoref{fig:filteredElements} shows $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}(A_{38})$.
+In the middle of \autoref{fig:filteredElements}, we show the filtered and non-filtered elements of $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}(A_{38})$ in white and black, respectively.
+
+<<blobPlots_create,eval=TRUE,cache=FALSE,include=FALSE>>=
+binarizedFilterPlots <- comparisonResults %>%
+  filter((comparisonName == "K013sA1 vs. K013sA2" & cellIndex == "3, 8" & theta == 3)) %>% #|
+  # (comparisonName == "K013sA1 vs. K002eG1" & cellIndex == "5, 1")) %>%
+  dplyr::select(comparisonName,cellIndex,cellHeightValues,alignedTargetCell) %>%
+  pmap(~ {
+
+    reference <- ..3
+
+    target <- ..4
+
+    reference$surface.matrix <- (reference$surface.matrix*reference$cmcR.info$scaleByVal + reference$cmcR.info$centerByVal)*1e6
+    target$surface.matrix <- (target$surface.matrix*target$cmcR.info$scaleByVal + target$cmcR.info$centerByVal)*1e6
+
+    dat <- bind_rows(reference %>%
+                       x3p_to_dataFrame() %>%
+                       mutate(value = value),
+                     target %>%
+                       x3p_to_dataFrame() %>%
+                       mutate(value = value)) %>%
+      group_by(x,y) %>%
+      summarise(difference = diff(value),
+                absDifference = abs(diff(value)),
+                average = mean(value),
+                .groups = "drop")  %>%
+      mutate(comparisonName = ..1,
+             cellIndex = ..2)
+
+    plt2 <- dat %>%
+      mutate(value = ifelse(absDifference >= sd(c(reference$surface.matrix,target$surface.matrix),na.rm=TRUE),TRUE,FALSE)) %>%
+      ggplot(aes(x=x,y=y,fill=value)) +
+      geom_raster() +
+      coord_fixed(expand = FALSE) +
+      theme_void() +
+      theme(#legend.position = "bottom",
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.subtitle = element_text(hjust = .5,size=8),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 6)) +
+      scale_fill_manual(values = c("black","white"),
+                        na.value = "gray65") +
+      labs(subtitle = "Filtered Elements",
+           fill = "Filtered")
+
+    return(list(plt2))
+  })
+
+labeledBlobPlts <- comparisonResults %>%
+  filter((comparisonName == "K013sA1 vs. K013sA2" & cellIndex == "3, 8" & theta == 3)) %>% #|
+  # (comparisonName == "K013sA1 vs. K002eG1" & cellIndex == "5, 1")) %>%
+  dplyr::select(comparisonName,cellIndex,cellHeightValues,alignedTargetCell) %>%
+  pmap(~ {
+
+    reference <- ..3
+
+    target <- ..4
+
+    reference$surface.matrix <- (reference$surface.matrix*reference$cmcR.info$scaleByVal + reference$cmcR.info$centerByVal)*1e6
+    target$surface.matrix <- (target$surface.matrix*target$cmcR.info$scaleByVal + target$cmcR.info$centerByVal)*1e6
+
+    averageBinarized <- bind_rows(reference %>%
+                                    x3p_to_dataFrame() %>%
+                                    mutate(value = value),
+                                  target %>%
+                                    x3p_to_dataFrame() %>%
+                                    mutate(value = value)) %>%
+      group_by(x,y) %>%
+      summarise(difference = diff(value),
+                absDifference = abs(diff(value)),
+                average = mean(value),
+                .groups = "drop")  %>%
+      mutate(comparisonName = ..1,
+             cellIndex = ..2)%>%
+      mutate(value = ifelse(absDifference >= sd(c(reference$surface.matrix,target$surface.matrix),na.rm=TRUE),TRUE,FALSE))
+
+    # plt1 <- averageBinarized %>%
+    #   mutate(value = ifelse(absDifference > 1,TRUE,FALSE)) %>%
+    #   ggplot(aes(x=x,y=y,fill=value)) +
+    #   geom_raster() +
+    #   coord_fixed(expand = FALSE) +
+    #   theme_void() +
+    #   theme(legend.position = "none",
+    #         axis.title = element_blank(),
+    #         axis.text = element_blank(),
+    #         axis.ticks = element_blank(),
+    #         plot.subtitle = element_text(hjust = .5),
+    #         legend.title = element_text(size = 10),
+    #         legend.text = element_text(size = 8)) +
+    #   scale_fill_manual(values = c("black","white"),
+    #                     na.value = "gray80") +
+    #   labs(subtitle = "Filtered Elements",
+    #        fill = "Filtered")
+
+    suppressWarnings({
+
+      averageMat <- averageBinarized %>%
+        mutate(x = x+1,
+               y=y+1) %>%
+        dplyr::select(x,y,value) %>%
+        imager::as.cimg() %>%
+        as.matrix()
+
+    })
+
+    averageMatClone <- averageMat
+
+    averageMat[is.na(averageMat)] <- 0
+
+    labeledBlobMat <- averageMat %>%
+      EBImage::as.Image() %>%
+      EBImage::bwlabel() %>%
+      as.array()
+
+    # put the NAs back in the image
+    labeledBlobMat[is.na(averageMatClone)] <- NA
+    # label the pixels that are not filtered out of the average df with -2
+    labeledBlobMat[averageMatClone == 0] <- -1
+
+    labeledBlobDF <- labeledBlobMat %>%
+      imager::as.cimg() %>%
+      as.data.frame()
+
+    set.seed(3132022)
+
+    numColors <- labeledBlobDF %>%
+      filter(value >= 0) %>%
+      pull(value) %>%
+      unique() %>%
+      length()
+
+    colorScheme <- sample(RColorBrewer::brewer.pal(12,"Paired"),size = numColors,replace = TRUE)
+
+    plt2 <- labeledBlobDF %>%
+      mutate(value = factor(value)) %>%
+      ggplot(aes(x=x,y=y,fill = value)) +
+      geom_raster() +
+      coord_fixed(expand = FALSE) +
+      theme_void() +
+      theme(legend.position = "none",
+            axis.title = element_blank(),
+            axis.text = element_blank(),
+            axis.ticks = element_blank(),
+            plot.subtitle = element_text(hjust = .5,size=8),
+            plot.margin = margin(1,.15,0,.15,"cm")) +
+      scale_fill_manual(values = c("black",colorScheme),
+                        na.value = "gray65") +
+      labs(subtitle = "Labeled Filtered\nNeighborhoods")
+
+    return(list(plt2))
+  })
+
+labeledBlobPlts_combined <- (patchComparisonPlts_combined$patches$plots[[4]] +
+          theme(plot.title = element_blank(),
+                plot.subtitle = element_text(hjust = .5,vjust = -1.5,size=8)) +
+          labs(subtitle = "K013sA1 Cell 3, 8\nFiltered Differences")) +
+  (binarizedFilterPlots[[1]][[1]] +
+     theme(legend.position = "none")) +
+  labeledBlobPlts[[1]] +
+  patchwork::plot_layout(guides = "collect")
+
+
+ggsave(plot = labeledBlobPlts_combined,filename = "figures/binarizedBlobs.png",bg = "white")
+knitr::plot_crop("figures/binarizedBlobs.png")
+@
+
+<<blobPlots_show,fig.cap="\\label{fig:filteredElements} From left to right: the absolute difference filtered visualization of cell 3, 8 in scan K013sA1, a visualization of the filtered elements where white pixels correspond to element-wise absolute differences larger than 1.4, and a visualization of the connected regions of filtered elements that have been labeled using a connected components labeling algorithm.", cache=FALSE>>=
+knitr::include_graphics("figures/binarizedBlobs.png")
+@
+
+Letting $M = \{(i,j) : O(f_{ij}) = 1\}$ denote the set of non-missing elements of $\mathcal{F}_{|A-B| > \tau}(A)$, consider the number of filtered elements as a proportion of the total number of non-missing values:
+\begin{align*}
+p_{filtered} = \frac{\sum_{(i,j) \in M} f_{ij}}{|M|}
+\end{align*}
+where $|M|$ is the cardinality of $M$.
+We assume that fewer elements will be filtered from matching cell pairs than non-matching.
+
+\jz{XXX Average and standard deviation of blob sizes}
+
+We use the connected components labeling algorithm detailed in \citet{haralick_shapiro} to individually identify neighborhoods of filtered elements.
+More precisely, the labeling algorithm provides a set of sets $\pmb{B} = \{B_1,B_2,...,B_{L}\}$ where each element $B_l$ consists of indices of $\mathcal{F}_{|A-B| \leq \tau}(A)$ that are connected by a chained-together sequence of 4 (or Rook's) neighborhoods.
+For the black and white filtered elements shown in the middle of \autoref{fig:filteredElements}, the right plot depicts the $B_l$ neighborhoods distinguished by fill colors.
+We consider the average and standard deviation of the neighborhood sizes as another feature:
+\begin{align*}
+\bar{B} &= \frac{1}{L} \sum_{l=1}^L |B_l| \\
+\sigma_B &= \sqrt{\frac{1}{L-1} \sum_{l=1}^L (|B_l| - \bar{B})^2}
+\end{align*}
+where $|B_l|$ is the cardinality of $B_l$.
+We assume that neighborhoods of filtered elements will be smaller on average and exhibit less variability for well-aligned matching cells compared to non-matching cells.
+
+\section{Results}
+
+% For two scans $A$ and $B$, we first consider applying the CMC method described above using the entire scans ($k = 1$) instead of partitioning the scans into a grid of cells.
+% Using the cross-correlation as an optimization criterion, we obtain an estimated registration $(\hat{\theta}_{11}, \widehat{dx}_{11}, \widehat{dy}_{11})$ at which $A$ and $B$ are most similar.
+% Note that in this case, if $(\hat{\theta}_{11}, \widehat{dx}_{11}, \widehat{dy}_{11})$ is the registration that aligns scan $B$ to $A$, then $(-\hat{\theta}_{11}, -\widehat{dx}_{11}, -\widehat{dy}_{11})$ aligns $A$ to $B$.
+\jz{For two scans $A$ and $B$, we apply the following procedure:}
+\begin{enumerate}
+\item \jz{Identify the registration $(\hat{\theta},\widehat{dx}, \widehat{dy})$ that maximizes the cross-correlation between scan $A$ and $B$. Assume that $(\hat{\theta},\widehat{dx}, \widehat{dy})$ aligns scan $B$ to scan $A$ (meaning $(-\hat{\theta},-\widehat{dx},-\widehat{dy})$ align $A$ to $B$).}
+
+\item \jz{Apply $(\hat{\theta},\widehat{dx}, \widehat{dy})$ to scan $B$.}
+
+\item \jz{Partition $A$ into a grid of $4 \times 4$ cells, $\{A_{11}, A_{12},...,A_{44}\}$. Identify the matching cells $\{B_{11}, B_{12},...,B_{44}\}$ by maximizing the cross-correlation function.}
+
+\item \jz{Calculate the visual diagnostic features for each cell pair.}
+
+\item \jz{Repeat steps 1-4 using scan $B$ as the reference scan.}
+\end{enumerate}
+
+\autoref{fig:fivePlotComparison_fullScan} shows the complementary comparison plot comparing scan K013sA1 and K013sA2 where $(\hat{\theta}, \widehat{dx}, \widehat{dy}) = (3, -14, -11)$.
+Notice that K013sA2 has been "cropped" after applying the estimated registration to be the same size as K013sA1.
+
+<<fullScanComparisonCalculation,cache=TRUE>>=
+fullScan_comparisonData <- map_dfr(seq(-30,30,by = 3),
+        function(theta){
+
+          reference_processed %>%
+  comparison_allTogether(target = target_processed,
+                         theta = theta,
+                         numCells = c(1,1),
+                         maxMissingProp = .99,
+                         sideLengthMultiplier = 1.1,
+                         returnX3Ps = TRUE)
+
+        }) %>%
+  filter(fft_ccf == max(fft_ccf)) %>%
+  mutate(comparisonName = "K013sA1 vs. K013sA2")
+@
+
+<<fullScanComparisonPlot,include = FALSE,cache=TRUE>>=
+patchComparisonPlts_combined <- fiveplot(fullScan_comparisonData,referenceScan = "K013sA1",targetScan = "K013sA2",cell = "1, 1")
+
+ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot_fullScan.png",
+       width = 7,height = 7,bg = "white")
+knitr::plot_crop("figures/complementCompPlot_fullScan.png")
+@
+
+<<matchCCP_fullScan_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison_fullScan} The complementary comparison plot for comparing scan K013sA1 and the aligned scan K013sA2. The left column shows the surface values of the two scans. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
+knitr::include_graphics("figures/complementCompPlot_fullScan.png")
+@
+
+<<visualDiagnosticResultsPlot,include=FALSE>>=
+load("data/visualDiagnosticFeatures_fullScans.RData")
+
+resultsPlt <- visualDiagnosticFeatures_fullScans %>%
+  filter(sdMultiplier == 1) %>%
+  select(type,8:15) %>%
+  mutate(x = log10(abs(x)),
+         y = log10(abs(y)),
+         theta = abs(theta),
+         blobSize_ave_nonStandardized = log10(blobSize_ave_nonStandardized),
+         blobSize_sd_nonStandardized = log10(blobSize_sd_nonStandardized)) %>%
+  pivot_longer(cols = 2:9) %>%
+  mutate(name = str_remove(name,"_nonStandardized")) %>%
+  mutate(name = factor(name,
+                       levels = c("blobSize_ave","blobSize_sd","differenceCor","theta","x","y","fft_ccf","pairwiseCompCor"),
+                       labels = c("Average Neighborhood Size\nLog10 scale",
+                                  "Neighborhood Size S.D.\nLog10 scale",
+                                  "Filtered Difference Cor.",
+                                  "Estimated Rotation",
+                                  "Absolute Horiz. Translation\nLog10 scale",
+                                  "Absolute Vert. Translation\nLog10 scale",
+                                  "FFT-based CCF",
+                                  "Pairwise-complete Cor."))) %>%
+  ggplot(aes(x = name,y = value,fill = type)) +
+  geom_boxplot() +
+  facet_wrap(~ name,scales = "free") +
+  labs(fill = "Comparison Type") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        axis.title = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(nrow = 1))
+
+ggsave(plot = resultsPlt,filename = "figures/resultsPlt.png")
+knitr::plot_crop("figures/resultsPlt.png")
+@
+
+<<visualDiagnosticResultsPlot_show,out.width=".9\\textwidth",fig.cap="\\label{fig:visualDiagnosticsPlot} Distribution of features.", cache=FALSE>>==
+knitr::include_graphics("figures/resultsPlt.png")
+@
+
+
+
+\section{Discussion}
+
+%----------------------------------------------------------------------------------------
+%	REFERENCE LIST
+%----------------------------------------------------------------------------------------
+
+\bigskip
+\begin{center}
+{\large\bf SUPPLEMENTARY MATERIAL}
+\end{center}
+
+\begin{description}
+
+\item[Title:] Brief description. (file type)
+
+\item[R-package for MYNEW routine:] R-package MYNEW containing code to perform the diagnostic methods described in the article. The package also contains all datasets used as examples in the article. (GNU zipped tar file)
+
+\item[TopMatch Example Scans:] Data set used in the illustration of MYNEW method in \autoref{diagnostics} (.txt file)
+
+\end{description}
+
+%----------------------------------------------------------------------------------------
+%	REFERENCE LIST
+%----------------------------------------------------------------------------------------
+
+
+\bibliography{refs.bib}
+
+%----------------------------------------------------------------------------------------
+\newpage
+\section*{Appendix}
+\begin{appendix}
+\section{Examples of CCPs}\label{additional.fives}
+\hh{Include one (or more) example(s) of a five-plot ensemble for a non-match so that we can see the qualitative difference. }
+
+
+<<nonMatchCCP_create,eval=TRUE,cache=TRUE,include=FALSE>>=
+referenceCell_nonMatch <- comparisonResults %>%
+    filter(comparisonName != "K013sA1 vs. K013sA2") %>%
+    filter(cellIndex == "5, 1") %>%
+    filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+    pull(cellHeightValues) %>%
+    .[[1]]
+
+targetCell_nonMatch <- comparisonResults %>%
+    filter(comparisonName != "K013sA1 vs. K013sA2") %>%
+    filter(cellIndex == "5, 1") %>%
+    filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+    pull(alignedTargetCell) %>%
+    .[[1]]
+
+referenceCell_nonMatch$surface.matrix <- (referenceCell_nonMatch$surface.matrix*referenceCell_nonMatch$cmcR.info$scaleByVal + referenceCell_nonMatch$cmcR.info$centerByVal)*1e6
+targetCell_nonMatch$surface.matrix <- (targetCell_nonMatch$surface.matrix*targetCell_nonMatch$cmcR.info$scaleByVal + targetCell_nonMatch$cmcR.info$centerByVal)*1e6
+
+nonMatchCellPairThresh <- sd(c(c(referenceCell_nonMatch$surface.matrix),c(targetCell_nonMatch$surface.matrix)),na.rm = TRUE)
+
+patchComparisonPlts <- impressions::x3pComparisonPlot(reference = referenceCell_nonMatch,
+  target = targetCell_nonMatch,
+  plotNames = c("K013sA1 Cell 5, 1","K002eG1 Aligned Cell\nat 3°",
+                "Filtered Element-wise Average",
+                "K013sA1 Cell 5, 1\nFiltered Differences","K002eG1 Aligned Cell\nFiltered Differences"),
+  cutoffThresh = sd(c(c(referenceCell_nonMatch$surface.matrix),c(targetCell_nonMatch$surface.matrix)),na.rm=TRUE),
+  unit = "micron")
+
+patchComparisonLegend_nonMatch <- cowplot::plot_grid(patchComparisonPlts$legend$grobs[[1]])
+@
+
+<<nonMatchCCP_blobs,eval=TRUE,cache=TRUE,include=FALSE>>=
+combinedValues <- comparisonResults %>%
+  filter(comparisonName != "K013sA1 vs. K013sA2") %>%
+  filter(cellIndex == "5, 1") %>%
+  filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+  pull(cellHeightValues) %>%
+  .[[1]] %>%
+  impressions::x3p_to_dataFrame() %>%
+  rename(refValue = value) %>%
+  left_join(comparisonResults %>%
+              filter(comparisonName != "K013sA1 vs. K013sA2") %>%
+              filter(cellIndex == "5, 1") %>%
+              filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+              pull(alignedTargetCell) %>%
+              .[[1]] %>%
+              impressions::x3p_to_dataFrame() %>%
+              rename(targValue = value),
+            by = c("x","y"))
+
+blobBoundaries <- comparisonResults %>%
+  filter(comparisonName != "K013sA1 vs. K013sA2") %>%
+  filter(cellIndex == "5, 1") %>%
+  filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+  dplyr::select(comparisonName,cellIndex,cellHeightValues,alignedTargetCell) %>%
+  pmap(~ {
+
+    reference <- ..3
+
+    target <- ..4
+
+    reference$surface.matrix <- (reference$surface.matrix*reference$cmcR.info$scaleByVal + reference$cmcR.info$centerByVal)*1e6
+    target$surface.matrix <- (target$surface.matrix*target$cmcR.info$scaleByVal + target$cmcR.info$centerByVal)*1e6
+
+    averageBinarized <- bind_rows(reference %>%
+                                    x3p_to_dataFrame() %>%
+                                    mutate(value = value),
+                                  target %>%
+                                    x3p_to_dataFrame() %>%
+                                    mutate(value = value)) %>%
+      group_by(x,y) %>%
+      summarise(difference = diff(value),
+                absDifference = abs(diff(value)),
+                average = mean(value),
+                .groups = "drop")  %>%
+      mutate(comparisonName = ..1,
+             cellIndex = ..2)%>%
+      mutate(value = ifelse(absDifference > sd(c(c(referenceCell_nonMatch$surface.matrix),c(targetCell_nonMatch$surface.matrix)),na.rm=TRUE),TRUE,FALSE))
+
+    suppressWarnings({
+
+      averageMat <- averageBinarized %>%
+        mutate(x = x+1,
+               y=y+1) %>%
+        dplyr::select(x,y,value) %>%
+        imager::as.cimg() %>%
+        as.matrix()
+
+    })
+
+    averageMat[is.na(averageMat)] <- 0
+
+    # we pad the matrix so that the contours one the edge blobs are properly
+    # identified. the padding is removed in the last lines of the creation of
+    # the outline object below
+    averageMat  <- averageMat %>%
+      imager::as.cimg() %>%
+      imager::pad(nPix = 10,axes = "xy",val = 0)
+
+    labels <- imager::label(averageMat)
+
+    bounds <- map(unique(labels[labels > 0]),
+                  function(lab){
+
+                    imager::boundary(labels == lab)
+
+                  })
+
+    return(list(bounds,labels))
+
+  })
+
+# combine all labeled blobs into one image
+boundaryPx <- blobBoundaries[[1]][[1]] %>%
+  imager::as.imlist() %>%
+  imager::add()
+
+# the mask used to dilate the blobs will grow them towards the bottom-right of
+# the matrix
+dilatedPx <- imager::dilate_rect(boundaryPx,sx = 2,sy = 2)
+dilatedPx_labels <- imager::dilate_rect(blobBoundaries[[1]][[2]],sx = 2,sy = 2)
+
+# flip the image and re-apply the dilation to grow the borders to the other
+# corners. flip back after dilation
+dilatedPx_mirrorx <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="x"),sx = 2,sy = 2),axis="x")
+dilatedPx_mirrorx_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="x"),sx = 2,sy = 2),axis="x")
+
+dilatedPx_mirrory <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="y"),sx = 2,sy = 2),"y")
+dilatedPx_mirrory_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="y"),sx = 2,sy = 2),"y")
+
+dilatedPx_mirrorxy <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="xy"),sx = 3,sy = 3),"xy")
+dilatedPx_mirrorxy_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="xy"),sx = 3,sy = 3),"xy")
+
+# combine all of the dilated images together into one image
+dilatedPx_comb <- dilatedPx + dilatedPx_mirrorx + dilatedPx_mirrory + dilatedPx_mirrorxy
+
+# we just want a binary labeling
+dilatedPx_comb[dilatedPx_comb > 0] <- 1
+
+# the dilated boundaries will have also grown into the blobs, so we take those
+# pixels out
+dilatedPx_comb[blobBoundaries[[1]][[2]] > 0] <- 0
+
+# from: https://stackoverflow.com/questions/34756755/plot-outline-around-raster-cells
+outline <- dilatedPx_comb %>%
+  as.data.frame() %>%
+  filter(value > 0) %>%
+  mutate(x = x-1,
+         y = y-1) %>%
+  raster::rasterFromXYZ() %>%
+  raster::rasterToPolygons(dissolve = TRUE) %>%
+  fortify() %>%
+  #the boundaries around the filtered blobs all share a common value in the
+  #"hole" column of TRUE
+  filter(hole) %>%
+  # remove padding used previously
+  mutate(lat = lat-5,
+         long = long-5)
+@
+
+<<nonMatchCCP_explore,eval=FALSE>>=
+patchComparisonPlts[[3]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = "Filtered Element-wise Average\nAbs. Differences at Most 1") +
+  theme(plot.margin = margin(0,25,0,25),
+        plot.subtitle = element_text(hjust = .5,size = 8,vjust = -5)) -
+  geom_raster(fill = "gray80") +
+  geom_path(data = outline,
+            color = "grey40",
+            aes(x=long,y=lat,group=group,colour=group),
+            inherit.aes = FALSE,
+            size = .5) +
+  guides(fill = "none") +
+  theme(legend.position = "bottom")
+@
+
+
+<<nonMatchCCP_combine,eval=TRUE,cache=TRUE,include=FALSE>>=
+`-.gg` <- function(plot, layer) {
+  if (missing(layer)) {
+    stop("Cannot use `-.gg()` with a single argument. Did you accidentally put - on a new line?")
+  }
+  if (!is.ggplot(plot)) {
+    stop('Need a plot on the left side')
+  }
+  plot$layers = c(layer, plot$layers)
+  plot
+}
+
+topLeft <- patchComparisonPlts[[1]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = "K013sA1 Cell 5, 1") +
+  theme(plot.margin = margin(0,0,5,0),
+        plot.subtitle = element_text(hjust = .5,size = 8,vjust = -1)) +
+  geom_raster(data = combinedValues %>%
+                filter(is.na(refValue) & !is.na(targValue)),
+              fill = "gray40")
+
+bottomLeft <-patchComparisonPlts[[2]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = "K002eG1 Aligned Cell\nat 3°") +
+  theme(plot.margin = margin(-20,-100,30,-100),
+        plot.subtitle = element_text(hjust = .5,vjust = -78,size = 8)) +
+  geom_raster(data = combinedValues %>%
+                filter(!is.na(refValue) & is.na(targValue)),
+              fill = "gray40")
+
+middle <- patchComparisonPlts[[3]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = paste0("Filtered Element-wise Average\nAbs. Differences at Most ",round(nonMatchCellPairThresh,2))) +
+  theme(plot.margin = margin(0,25,0,25),
+        plot.subtitle = element_text(hjust = .5,size = 8,vjust = -5)) -
+  geom_raster(fill = "gray80") +
+  geom_path(data = outline %>%
+              filter(!(group %in% c("1.22","1.23"))),
+            aes(x=long,y=lat,group=group), color = "grey40",
+            inherit.aes = FALSE,
+            size = .5)
+
+topRight <- patchComparisonPlts[[4]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = paste0("Filtered K013sA1 Cell 5, 1\nAbs. Differences Greater Than ",round(nonMatchCellPairThresh,2))) +
+  theme(plot.margin = margin(0,0,5,0),
+        plot.subtitle = element_text(hjust = .5,size = 8)) -
+  geom_raster(fill = "gray80") +
+  geom_path(data = outline %>%
+              filter(!(group %in% c("1.22","1.23"))), color = "grey40",
+            aes(x=long,y=lat,group=group),
+            inherit.aes = FALSE,
+            size = .25)
+
+bottomRight <- patchComparisonPlts[[5]] +
+  cowplot::theme_nothing() +
+  labs(subtitle = paste0("Filtered K002eG1 Aligned Cell\nAbs. Differences Greater Than ",round(nonMatchCellPairThresh,2))) +
+  theme(plot.margin = margin(-20,-100,30,-100),
+        plot.subtitle = element_text(hjust = .5,vjust = -78,size = 8)) -
+  geom_raster(fill = "gray80") +
+  geom_path(data = outline %>%
+              filter(!(group %in% c("1.22","1.23"))), color = "grey40",
+            aes(x=long,y=lat,group=group),
+            inherit.aes = FALSE,
+            size = .25)
+
+design <- "ACCD
+           BCCE"
+
+patchComparisonPlts_nonMatch_combined <- patchwork::wrap_plots(topLeft,bottomLeft,middle,topRight,bottomRight,design = design) +
+  inset_element(patchComparisonLegend_nonMatch,left = -2.15,bottom = 0,right = -2.15,top = 0,on_top = FALSE,align_to = 'full')
+
+ggsave(plot = patchComparisonPlts_nonMatch_combined,
+       filename = "figures/complementCompPlot_nonMatch.png",
+       width = 7,height = 7,bg = "white")
+knitr::plot_crop("figures/complementCompPlot_nonMatch.png")
+@
+
+<<nonMatchCCP_show,out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison_nonMatch} The complementary comparison plot for two cells from the comparison between cell 5, 1 of scan K013sA1 and its aligned cell in the non-match scan K002eG1. Compared to the aligned cells in the matching comparison shown in \\autoref{fig:fivePlotComparison}, we see that there are more dissimilarities between these two aligned cells. A black border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
+knitr::include_graphics("figures/complementCompPlot_nonMatch.png")
+@
+
+\end{appendix}
+
+\end{document}
+

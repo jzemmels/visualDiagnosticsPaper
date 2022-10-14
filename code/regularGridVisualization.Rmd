@@ -1,0 +1,754 @@
+---
+title: "R Notebook"
+---
+
+```{r}
+compData <- reference_processed %>%
+  comparison_allTogether(target = target_processed,
+                         theta = 3,
+                         numCells = c(1,1),
+                         maxMissingProp = .99,
+                         sideLengthMultiplier = 1.1,
+                         returnX3Ps = TRUE) %>%
+  mutate(comparisonName = "K013sA1 vs. K013sA2") %>%
+  select(cellHeightValues,alignedTargetCell)
+
+compData1 <- map_dfr(-2:2,
+                     function(theta){
+                       
+                       compData$cellHeightValues[[1]] %>%
+                         comparison_allTogether(target = compData$alignedTargetCell[[1]],
+                                                theta = theta,
+                                                numCells = c(8,8),
+                                                maxMissingProp = .99,
+                                                sideLengthMultiplier = 1.1,
+                                                returnX3Ps = TRUE) %>%
+                         mutate(comparisonName = "K013sA1 vs. K013sA2")
+                       
+                       
+                     })
+```
+
+```{r}
+angle <- function (A, B, C, label = FALSE) 
+{
+  vector1 = c(A[1] - B[1], A[2] - B[2])
+  vector2 = c(C[1] - B[1], C[2] - B[2])
+  num = (vector1[1] * vector2[1] + vector1[2] * vector2[2])
+  den = sqrt(vector1[1]^2 + vector1[2]^2) * sqrt(vector2[1]^2 + 
+                                                   vector2[2]^2)
+  angle = acos(num/den)
+  angle = (360 * angle)/(2 * pi)
+  names(angle) = "angle"
+  if (label == TRUE) {
+    text(B[1], B[2], toString(round(angle, digits = 1)), 
+         cex = 0.75)
+  }
+  return(angle)
+}
+
+cellGridRegularity <- function(comparisonResults,x3p){
+  
+  targetCellData <- comparisonResults %>%
+    mutate(originalMethod = factor(originalMethod,levels = c("CMC","non-CMC"))) %>%
+    select(c(alignedTargetCell,cellIndex,theta,originalMethod)) %>%
+    pmap_dfr(~ cmcR:::targetCellCorners(alignedTargetCell = ..1,
+                                        cellIndex = ..2,
+                                        theta = ..3,
+                                        cmcClassif = ..4,
+                                        target = x3p)) %>%
+    # pmap_dfr(~ impressions::targetCellCorners(alignedTargetCell = ..1,
+    #                                           cellIndex = ..2,
+    #                                           theta = ..3,
+    #                                           cmcClassif = ..4,
+    #                                           target = x3p)) %>%
+    group_by(cellIndex,theta) %>%
+    summarise(x = mean(x),
+              y = mean(y),
+              .groups = "drop") %>%
+    ungroup() %>%
+    # the mutate statement below undoes the same operation that is done in the
+    # targetCellCorners function, which is done FOR THE SAKE OF PLOTTING. The
+    # operation below yields y values that correspond to the *actual* rows in
+    # the original surface matrix instead of what will appear on a ggplot to be
+    # the correct rows, assuming that the (1,1)-th index is in the top-left
+    # corner of the plot. We want the actual rows because we assume that the
+    # cells should follow a consistent grid - e.g., cell 2,1 should be below
+    # cell 1,1.
+    mutate(y = nrow(x3p$surface.matrix) - y) %>%
+    left_join(comparisonResults %>%
+                select(cellIndex,theta,pairwiseCompCor),
+              by = c("cellIndex","theta")) %>%
+    distinct() %>%
+    tidyr::separate(col = cellIndex,into = c("cellIndexRow","cellIndexCol"),sep = ", ",remove = FALSE) %>%
+    mutate(cellIndexRow = as.numeric(cellIndexRow),
+           cellIndexCol = as.numeric(cellIndexCol))
+  
+  cellDims <- comparisonResults %>%
+    select(cellIndex,cellHeightValues) %>%
+    mutate(numRows = map_dbl(cellHeightValues,~ nrow(.$surface.matrix)),
+           numCols = map_dbl(cellHeightValues,~ ncol(.$surface.matrix))) %>%
+    select(cellIndex,numRows,numCols)
+  
+  # for each cell index, determine if it's a vertex pt or a terminal pt.
+  targetCellData %>%
+    select(cellIndex,cellIndexRow,cellIndexCol,x,y) %>%
+    pmap_dfr(~ {
+      
+      # filter-down to the points that are in the 4-neighborhood of ..1 cell
+      # index
+      dat1 <- targetCellData %>%
+        filter(cellIndex != ..1) %>%
+        filter((abs(cellIndexRow - ..2) == 1 & abs(cellIndexCol - ..3) == 0) | (abs(cellIndexRow - ..2) == 0 & abs(cellIndexCol - ..3) == 1))
+      
+      # if there are more than 1 point neighboring the ..1 cell, then it must be
+      # a vertex pt
+      if(nrow(dat1) > 1){
+        
+        # map over the other cell indices to determine the trios of neighboring
+        # points
+        dat4 <- dat1 %>%
+          group_by(cellIndex) %>%
+          group_split() %>%
+          map_dfr(function(dat2){
+            
+            # filter-out the cells that are not the ..1 cell or the
+            # dat2$cellIndex cell.
+            dat3 <- dat1 %>%
+              filter(cellIndex != dat2$cellIndex & cellIndex != ..1 & 
+                       ((abs(cellIndexRow - ..2) == 1 & abs(cellIndexCol - ..3) == 0) | (abs(cellIndexRow - ..2) == 0 & abs(cellIndexCol - ..3) == 1)))
+            
+            if(nrow(dat3) > 0){
+              
+              ret <- data.frame(terminalPt1 = dat3$cellIndex,
+                                terminalPt1_row = dat3$y,
+                                terminalPt1_col = dat3$x) %>%
+                mutate(terminalPt2 = dat2$cellIndex,
+                       terminalPt2_row = dat2$y,
+                       terminalPt2_col = dat2$x,
+                       vertexPt = ..1,
+                       vertexPt_row = ..5,
+                       vertexPt_col = ..4) %>%
+                left_join(cellDims,
+                          by = c("terminalPt1" = "cellIndex")) %>%
+                rename(terminalPt1_numRows = numRows,
+                       terminalPt1_numCols = numCols) %>%
+                left_join(cellDims,
+                          by = c("terminalPt2" = "cellIndex")) %>%
+                rename(terminalPt2_numRows = numRows,
+                       terminalPt2_numCols = numCols) %>%
+                left_join(cellDims,
+                          by = c("vertexPt" = "cellIndex")) %>%
+                rename(vertexPt_numRows = numRows,
+                       vertexPt_numCols = numCols) %>%
+                mutate(terminalPt1_expectedDist = pmap_dbl(.l = list(terminalPt1,terminalPt1_numRows,terminalPt1_numCols,
+                                                                     vertexPt,vertexPt_numRows,vertexPt_numCols),
+                                                           function(cellInd1,nrow1,ncol1,cellInd2,nrow2,ncol2){
+                                                             
+                                                             cellInds1 <- stringr::str_split(cellInd1,", ")[[1]] %>%
+                                                               map_dbl(as.numeric)
+                                                             
+                                                             cellInds2 <- stringr::str_split(cellInd2,", ")[[1]] %>%
+                                                               map_dbl(as.numeric)
+                                                             
+                                                             rowColBool <- which(abs(cellInds1 - cellInds2) > 0)
+                                                             
+                                                             return((c(nrow1 + nrow2,ncol1 + ncol2)/2)[rowColBool])
+                                                             
+                                                           }),
+                       terminalPt2_expectedDist = pmap_dbl(.l = list(terminalPt2,terminalPt2_numRows,terminalPt2_numCols,
+                                                                     vertexPt,vertexPt_numRows,vertexPt_numCols),
+                                                           function(cellInd1,nrow1,ncol1,cellInd2,nrow2,ncol2){
+                                                             
+                                                             cellInds1 <- stringr::str_split(cellInd1,", ")[[1]] %>%
+                                                               map_dbl(as.numeric)
+                                                             
+                                                             cellInds2 <- stringr::str_split(cellInd2,", ")[[1]] %>%
+                                                               map_dbl(as.numeric)
+                                                             
+                                                             rowColBool <- which(abs(cellInds1 - cellInds2) > 0)
+                                                             
+                                                             return((c(nrow1 + nrow2,ncol1 + ncol2)/2)[rowColBool])
+                                                             
+                                                           }),
+                       expectedAngle = pmap_dbl(.l = list(vertexPt,terminalPt1,terminalPt2),
+                                                function(cellInd1,cellInd2,cellInd3){
+                                                  
+                                                  cellInds1 <- stringr::str_split(cellInd1,", ")[[1]] %>%
+                                                    map_dbl(as.numeric)
+                                                  
+                                                  cellInds2 <- stringr::str_split(cellInd2,", ")[[1]] %>%
+                                                    map_dbl(as.numeric)
+                                                  
+                                                  cellInds3 <- stringr::str_split(cellInd3,", ")[[1]] %>%
+                                                    map_dbl(as.numeric)
+                                                  
+                                                  if(length(unique(c(cellInds1[1],cellInds2[1],cellInds3[1]))) == 1 | length(unique(c(cellInds1[2],cellInds2[2],cellInds3[2]))) == 1){
+                                                    
+                                                    return(180)
+                                                    
+                                                  }
+                                                  else{
+                                                    return(90)
+                                                  }
+                                                  
+                                                })) %>%
+                select(-c(terminalPt1_numRows,terminalPt1_numCols,terminalPt2_numRows,terminalPt2_numCols,vertexPt_numRows,vertexPt_numCols))
+              
+            }
+            
+            return(ret)
+          })
+        
+        return(dat4 %>%
+                 select(vertexPt,terminalPt1,terminalPt2,everything()))
+      }
+      
+    })
+}
+
+
+gridRegularityFeatures <- function(cellGridRegularity_output){
+  
+  if(nrow(cellGridRegularity_output) > 0){
+    ret <- cellGridRegularity_output %>%
+      mutate(terminalPt1_observedDist = sqrt((terminalPt1_row - vertexPt_row)^2 + (terminalPt1_col - vertexPt_col)^2),
+             terminalPt2_observedDist = sqrt((terminalPt2_row - vertexPt_row)^2 + (terminalPt2_col - vertexPt_col)^2),
+             observedAngle = pmap_dbl(.l = list(terminalPt1_row,terminalPt1_col,
+                                                vertexPt_row,vertexPt_col,
+                                                terminalPt2_row,terminalPt2_col),
+                                      ~ angle(c(..1,..2),c(..3,..4),c(..5,..6))),
+             misalignment = pmap_lgl(.l = list(vertexPt,vertexPt_row,vertexPt_col,
+                                               terminalPt1,terminalPt1_row,terminalPt1_col,
+                                               terminalPt2,terminalPt2_row,terminalPt2_col,
+                                               expectedAngle),
+                                     function(cellInd1,row1,col1,
+                                              cellInd2,row2,col2,
+                                              cellInd3,row3,col3,
+                                              ang){
+                                       
+                                       cellInds1 <- stringr::str_split(cellInd1,", ")[[1]] %>%
+                                         map_dbl(as.numeric)
+                                       
+                                       cellInds2 <- stringr::str_split(cellInd2,", ")[[1]] %>%
+                                         map_dbl(as.numeric)
+                                       
+                                       cellInds3 <- stringr::str_split(cellInd3,", ")[[1]] %>%
+                                         map_dbl(as.numeric)
+                                       
+                                       # left-most cell will have minimum cell col index
+                                       leftCell <- which.min(c(cellInds2[2],cellInds3[2]))
+                                       rightCell <- which.max(c(cellInds2[2],cellInds3[2]))
+                                       
+                                       # top-most cell will have the minimum
+                                       # cell row index
+                                       aboveCell <- which.min(c(cellInds2[1],cellInds3[1]))
+                                       belowCell <- which.max(c(cellInds2[1],cellInds3[1]))
+                                       
+                                       if(ang == 180){
+                                         
+                                         # if the 3 cells are have the same cell row
+                                         # index...
+                                         if(length(unique(c(cellInds1[1],cellInds2[1],cellInds3[1]))) == 1){
+                                           
+                                           # misalignment if left-most cell's col
+                                           # index isn't the min OR right-most cell's
+                                           # col index isn't the max
+                                           ret <- (c(col2,col3)[leftCell] != min(c(col1,col2,col3))) | (c(col2,col3)[rightCell] != max(c(col1,col2,col3)))
+                                           
+                                           return(ret)
+                                         }
+                                         #otherwise, there in the same cell col
+                                         #index (since ang == 180)
+                                         else{
+                                           
+                                           # misalignment if the top-most cell's row
+                                           # index in the min OR the bottom-most
+                                           # cell's row index isn't the max
+                                           ret <- (c(row2,row3)[aboveCell] != min(c(row1,row2,row3))) | (c(row2,row3)[belowCell] != max(c(row1,row2,row3)))
+                                           
+                                           return(ret)
+                                           
+                                         }
+                                         
+                                       }
+                                       else{
+                                         # misalignment if left-most cell's col index
+                                         # isn't the min OR right-most cell's col
+                                         # index isn't the max OR if the top-most
+                                         # cell's row index in the min OR the
+                                         # bottom-most cell's row index isn't the max
+                                         
+                                         #NOTE: in the case of an expected 90 degree
+                                         #angle between neighboring cells, it
+                                         #actually makes sense for the vertex point
+                                         #to have either the most extreme row or col
+                                         #index for any true rotation other than
+                                         #exactly 0 degrees (think: it's the corner
+                                         #sticking our of the right angle). as such,
+                                         #we first compare the terminal
+                                         #points to each other.
+                                         ret <- (c(col2,col3)[leftCell] != min(c(col2,col3))) | (c(col2,col3)[rightCell] != max(c(col2,col3))) |
+                                           (c(row2,row3)[aboveCell] != min(c(row2,row3))) | (c(row2,row3)[belowCell] != max(c(row2,row3)))
+                                         # ret <- (c(col2,col3)[leftCell] != min(c(col1,col2,col3))) | (c(col2,col3)[rightCell] != max(c(col1,col2,col3))) |
+                                         #   (c(row2,row3)[aboveCell] != min(c(row1,row2,row3))) | (c(row2,row3)[belowCell] != max(c(row1,row2,row3)))
+                                         
+                                         # depending on the arrangement of the 90
+                                         # degree angle, the vertex should still
+                                         # be spatially associated with the
+                                         # terminal points. For example, in the
+                                         # first quadrant, we expect the vertex
+                                         # point to be left of the right cell and
+                                         # below the top cell ASSUMING THE CORRECT
+                                         # ROTATION IS BETWEEN -90 ANG 90 DEGREES
+                                         
+                                         # 1st quadrant:
+                                         #
+                                         # x
+                                         # |
+                                         # x--x
+                                         if(cellInds1[1] == max(cellInds1[1],cellInds2[1],cellInds3[1]) & 
+                                            cellInds1[2] == min(cellInds1[2],cellInds2[2],cellInds3[2])){
+                                           
+                                           # misalignment if vertex point's row
+                                           # ind is less than the above cell OR
+                                           # col ind is greater than right cell
+                                           ret <- ret | (row1 < c(row2,row3)[aboveCell]) | (col1 > c(col2,col3)[rightCell])
+                                           
+                                         }
+                                         
+                                         # 2nd quadrant:
+                                         #
+                                         #    x
+                                         #    |
+                                         # x--x
+                                         if(cellInds1[1] == max(cellInds1[1],cellInds2[1],cellInds3[1]) & 
+                                            cellInds1[2] == max(cellInds1[2],cellInds2[2],cellInds3[2])){
+                                           
+                                           
+                                           # misalignment if vertex point's row
+                                           # ind is less than the above cell OR
+                                           # col ind is less than left cell
+                                           ret <- ret | (row1 < c(row2,row3)[aboveCell]) | (col1 < c(col2,col3)[leftCell])
+                                           
+                                         }
+                                         
+                                         # 3rd quadrant:
+                                         #
+                                         # x--x
+                                         #    |
+                                         #    x
+                                         if(cellInds1[1] == min(cellInds1[1],cellInds2[1],cellInds3[1]) & 
+                                            cellInds1[2] == max(cellInds1[2],cellInds2[2],cellInds3[2])){
+                                           
+                                           # misalignment if vertex point's row
+                                           # ind is more than the below cell OR
+                                           # col ind is less than left cell
+                                           ret <- ret | (row1 > c(row2,row3)[belowCell]) | (col1 < c(col2,col3)[leftCell])
+                                           
+                                         }
+                                         
+                                         # 4th quadrant:
+                                         #
+                                         # x--x
+                                         # |
+                                         # x
+                                         if(cellInds1[1] == min(cellInds1[1],cellInds2[1],cellInds3[1]) & 
+                                            cellInds1[2] == min(cellInds1[2],cellInds2[2],cellInds3[2])){
+                                           
+                                           # misalignment if vertex point's row
+                                           # ind is more than the below cell OR
+                                           # col ind is greater than right cell
+                                           ret <- ret | (row1 > c(row2,row3)[belowCell]) | (col1 > c(col2,col3)[rightCell])
+                                           
+                                         }
+                                         
+                                         return(ret)
+                                       }
+                                       
+                                     })
+      ) %>%
+      mutate(terminalPt1_distDiff = abs(terminalPt1_observedDist - terminalPt1_expectedDist),
+             terminalPt2_distDiff = abs(terminalPt2_observedDist - terminalPt2_expectedDist),
+             angleDiff = abs(expectedAngle - observedAngle))
+  }
+  else{
+    ret <- cellGridRegularity_output %>%
+      mutate(terminalPt1_observedDist = NA,
+             terminalPt2_observedDist = NA,
+             observedAngle = NA,
+             misalignment = NA,
+             terminalPt1_distDiff = NA,
+             terminalPt2_distDiff = NA,
+             angleDiff = NA)
+  }
+  
+  return(ret)
+}
+```
+
+```{r}
+gridRegularity_reference_vs_target <- cellGridRegularity(comparisonResults = compData1 %>%
+                                                           group_by(cellIndex) %>%
+                                                           filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+                                                           slice(1) %>%
+                                                           ungroup() %>%
+                                                           mutate(originalMethod = "CMC"),
+                                                         x3p = compData$alignedTargetCell[[1]]) %>%
+  gridRegularityFeatures()
+```
+
+
+```{r}
+compData1 <- compData1 %>%
+  group_by(cellIndex) %>%
+  filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(originalMethod = "CMC")
+
+gridRegularity_reference_vs_target %>%
+  mutate(comparisonName = "K013sA1_vs_K013sA2") %>%
+  group_by(comparisonName) %>%
+  group_split() %>%
+  .[1] %>%
+  map(function(dat){
+    
+    
+    scanNames <- str_split(unique(dat$comparisonName),"_vs_")[[1]]
+    
+    # load(paste0("topMatch_alignedPatches_train/",unique(dat$comparisonName),".RData"))
+    
+    reference <- scanNames[c("reference_vs_target","target_vs_reference") == unique(dat$direction)]
+    target <- scanNames[c("reference_vs_target","target_vs_reference") != unique(dat$direction)]
+    
+    wellAlignedCells <- dat %>%
+      filter(terminalPt1_distDiff <= 10 & terminalPt2_distDiff <= 10 & angleDiff <= 10 & !misalignment)
+    
+    if(nrow(wellAlignedCells) > 0){
+      
+      wellAlignedCellIndices <- unique(c(wellAlignedCells$vertexPt,wellAlignedCells$terminalPt1,wellAlignedCells$terminalPt2))
+      
+    }
+    else{
+      
+      wellAlignedCellIndices <- NA
+      
+    }
+    
+    targNrow <- compData$alignedTargetCell[[1]]$surface.matrix %>%
+      nrow()
+    
+    segmentDat <- dat %>%
+      select(vertexPt,terminalPt1
+             ,terminalPt2,terminalPt2_row,terminalPt2_col
+             ,vertexPt_row,vertexPt_col,terminalPt1_row,terminalPt1_col,misalignment) %>%
+      distinct() %>%
+      mutate(vertexPt_row = targNrow - vertexPt_row,
+             terminalPt1_row = targNrow - terminalPt1_row,
+             terminalPt2_row = targNrow - terminalPt2_row,
+             regularGrid = pmap_lgl(.l = list(vertexPt,terminalPt1,terminalPt2),
+                                    function(x,y,z){
+                                      
+                                      pmap_lgl(wellAlignedCells,
+                                               ~ {
+                                                 
+                                                 all(c(x,y,z) %in% c(..1,..2,..3))
+                                                 
+                                               }) %>%
+                                        any()
+                                      
+                                      # wellAlignedCells %>%
+                                      #   filter(vertexPt == ..1 &
+                                      #            terminalPt1 == ..2 &
+                                      #            terminalPt2 == ..3) %>%
+                                      #   nrow() %>%
+                                      #   magrittr::is_greater_than(0)
+                                      
+                                    })) %>%
+      
+      group_by(vertexPt,terminalPt1) %>%
+      mutate(regularGrid = any(regularGrid)) %>%
+      distinct()
+    
+    ret <- cmcR::cmcPlot(reference = compData$cellHeightValues[[1]],
+                         target = compData$alignedTargetCell[[1]],
+                         cmcClassifs = compData1,
+                         type = "list")
+    
+    refSegmentData <- compData1 %>%
+      select(cellIndex,cellHeightValues) %>%
+      pmap_dfr(~ {
+        
+        cellRanges <- as.numeric(str_extract_all(..2$cmcR.info$cellRange,"[0-9]{1,}")[[1]])
+        
+        # browser()
+        
+        return(data.frame(cellIndex = ..1,
+                          y = mean(cellRanges[1:2]),
+                          x = mean(cellRanges[3:4])))
+        
+      })
+    
+    refSegmentData <- segmentDat %>%
+      select(-c(terminalPt2,vertexPt_row,vertexPt_col,terminalPt1_row,terminalPt1_col)) %>%
+      left_join(refSegmentData,by = c("vertexPt" = "cellIndex")) %>%
+      rename(vertexX = x,
+             vertexY = y) %>%
+      left_join(refSegmentData,by = c("terminalPt1" = "cellIndex")) %>%
+      rename(terminalX = x,
+             terminalY = y) %>%
+      mutate(vertexY = targNrow - vertexY,
+             terminalY = targNrow - terminalY)
+    
+    ret1 <- (ret[[1]] +
+               labs(subtitle = reference) +
+               theme(strip.text = element_blank(),
+                     plot.subtitle = element_text(hjust = .5)) +
+               scale_fill_manual(values = "black") +
+               geom_segment(data = refSegmentData,
+                            aes(x = vertexX,y = vertexY,
+                                xend = terminalX,yend = terminalY,
+                                colour = regularGrid),
+                            size = 1.1,
+                            inherit.aes = FALSE) +
+               theme(legend.position = "bottom") +
+               guides(fill = "none",
+                      fill_new = "none",
+                      colour = guide_legend()) +
+               scale_colour_manual(values = c("#a50026","#313695"))
+    ) +
+      (ret[[2]] +
+         labs(subtitle = target) +
+         theme(strip.text = element_blank(),
+               plot.subtitle = element_text(hjust = .5)) +
+         scale_fill_manual(values = "black") +
+         geom_segment(data = segmentDat,
+                      aes(x = vertexPt_col,y = vertexPt_row,
+                          xend = terminalPt1_col,yend = terminalPt1_row,
+                          colour = regularGrid),
+                      size = 1.1,
+                      inherit.aes = FALSE) +
+         scale_colour_manual(values = c("#a50026","#313695")))
+    
+    
+    return(list(ret1))
+    
+    
+  })
+```
+
+
+
+Plot specific trios of cells as exemplars.
+
+```{r}
+gridRegularity_reference_vs_target %>%
+  mutate(comparisonName = "K013sA1_vs_K013sA2") %>%
+  filter(vertexPt == "2, 1" & terminalPt1 %in% c("3, 1","2, 2")) %>%
+  group_by(comparisonName) %>%
+  group_split() %>%
+  .[1] %>%
+  map(function(dat){
+    
+    
+    scanNames <- str_split(unique(dat$comparisonName),"_vs_")[[1]]
+    
+    # load(paste0("topMatch_alignedPatches_train/",unique(dat$comparisonName),".RData"))
+    
+    reference <- scanNames[c("reference_vs_target","target_vs_reference") == unique(dat$direction)]
+    target <- scanNames[c("reference_vs_target","target_vs_reference") != unique(dat$direction)]
+    
+    wellAlignedCells <- dat %>%
+      filter(terminalPt1_distDiff <= 10 & terminalPt2_distDiff <= 10 & angleDiff <= 10 & !misalignment)
+    
+    if(nrow(wellAlignedCells) > 0){
+      
+      wellAlignedCellIndices <- unique(c(wellAlignedCells$vertexPt,wellAlignedCells$terminalPt1,wellAlignedCells$terminalPt2))
+      
+    }
+    else{
+      
+      wellAlignedCellIndices <- NA
+      
+    }
+    
+    targNrow <- compData$alignedTargetCell[[1]]$surface.matrix %>%
+      nrow()
+    
+    segmentDat <- dat %>%
+      select(vertexPt,terminalPt1
+             ,terminalPt2,terminalPt2_row,terminalPt2_col
+             ,vertexPt_row,vertexPt_col,terminalPt1_row,terminalPt1_col,misalignment) %>%
+      distinct() %>%
+      mutate(vertexPt_row = targNrow - vertexPt_row,
+             terminalPt1_row = targNrow - terminalPt1_row,
+             terminalPt2_row = targNrow - terminalPt2_row,
+             regularGrid = pmap_lgl(.l = list(vertexPt,terminalPt1,terminalPt2),
+                                    function(x,y,z){
+                                      
+                                      pmap_lgl(wellAlignedCells,
+                                               ~ {
+                                                 
+                                                 all(c(x,y,z) %in% c(..1,..2,..3))
+                                                 
+                                               }) %>%
+                                        any()
+                                      
+                                      # wellAlignedCells %>%
+                                      #   filter(vertexPt == ..1 &
+                                      #            terminalPt1 == ..2 &
+                                      #            terminalPt2 == ..3) %>%
+                                      #   nrow() %>%
+                                      #   magrittr::is_greater_than(0)
+                                      
+                                    })) %>%
+      
+      group_by(vertexPt,terminalPt1) %>%
+      mutate(regularGrid = any(regularGrid)) %>%
+      distinct()
+    
+    ret <- cmcR::cmcPlot(reference = compData$cellHeightValues[[1]],
+                         target = compData$alignedTargetCell[[1]],
+                         cmcClassifs = compData1 %>%
+                           filter(cellIndex %in% c("2, 1","3, 1","2, 2")),
+                         type = "list")
+    
+    ret1 <- 
+      (ret[[2]] +
+         labs(subtitle = target) +
+         theme(strip.text = element_blank(),
+               plot.subtitle = element_text(hjust = .5)) +
+         scale_fill_manual(values = "black") +
+         geom_segment(data = segmentDat,
+                      aes(x = vertexPt_col,y = vertexPt_row,
+                          xend = terminalPt1_col,yend = terminalPt1_row,
+                          colour = regularGrid),
+                      size = 1.1,
+                      inherit.aes = FALSE) +
+         scale_colour_manual(values = c("#313695"))) +
+      xlim(c(-10,115)) +
+      ylim(c(250,375))
+    
+    
+    return(list(ret1))
+    
+    
+  })
+
+gridRegularity_reference_vs_target %>%
+  mutate(comparisonName = "K013sA1_vs_K013sA2") %>%
+  filter(vertexPt == "1, 3" & terminalPt1 %in% c("1, 2","2, 3")) %>%
+  group_by(comparisonName) %>%
+  group_split() %>%
+  .[1] %>%
+  map(function(dat){
+    
+    
+    scanNames <- str_split(unique(dat$comparisonName),"_vs_")[[1]]
+    
+    # load(paste0("topMatch_alignedPatches_train/",unique(dat$comparisonName),".RData"))
+    
+    reference <- scanNames[c("reference_vs_target","target_vs_reference") == unique(dat$direction)]
+    target <- scanNames[c("reference_vs_target","target_vs_reference") != unique(dat$direction)]
+    
+    wellAlignedCells <- dat %>%
+      filter(terminalPt1_distDiff <= 10 & terminalPt2_distDiff <= 10 & angleDiff <= 10 & !misalignment)
+    
+    if(nrow(wellAlignedCells) > 0){
+      
+      wellAlignedCellIndices <- unique(c(wellAlignedCells$vertexPt,wellAlignedCells$terminalPt1,wellAlignedCells$terminalPt2))
+      
+    }
+    else{
+      
+      wellAlignedCellIndices <- NA
+      
+    }
+    
+    targNrow <- compData$alignedTargetCell[[1]]$surface.matrix %>%
+      nrow()
+    
+    segmentDat <- dat %>%
+      select(vertexPt,terminalPt1
+             ,terminalPt2,terminalPt2_row,terminalPt2_col
+             ,vertexPt_row,vertexPt_col,terminalPt1_row,terminalPt1_col,misalignment) %>%
+      distinct() %>%
+      mutate(vertexPt_row = targNrow - vertexPt_row,
+             terminalPt1_row = targNrow - terminalPt1_row,
+             terminalPt2_row = targNrow - terminalPt2_row,
+             regularGrid = pmap_lgl(.l = list(vertexPt,terminalPt1,terminalPt2),
+                                    function(x,y,z){
+                                      
+                                      pmap_lgl(wellAlignedCells,
+                                               ~ {
+                                                 
+                                                 all(c(x,y,z) %in% c(..1,..2,..3))
+                                                 
+                                               }) %>%
+                                        any()
+                                      
+                                      # wellAlignedCells %>%
+                                      #   filter(vertexPt == ..1 &
+                                      #            terminalPt1 == ..2 &
+                                      #            terminalPt2 == ..3) %>%
+                                      #   nrow() %>%
+                                      #   magrittr::is_greater_than(0)
+                                      
+                                    })) %>%
+      
+      group_by(vertexPt,terminalPt1) %>%
+      mutate(regularGrid = any(regularGrid)) %>%
+      distinct()
+    
+    ret <- cmcR::cmcPlot(reference = compData$cellHeightValues[[1]],
+                         target = compData$alignedTargetCell[[1]],
+                         cmcClassifs = compData1 %>%
+                           filter(cellIndex %in% c("1, 2","2, 3","1, 3")),
+                         type = "list")
+    
+    ret1 <- 
+      (ret[[2]] +
+         labs(subtitle = target) +
+         theme(strip.text = element_blank(),
+               plot.subtitle = element_text(hjust = .5)) +
+         scale_fill_manual(values = "black") +
+         geom_segment(data = segmentDat,
+                      aes(x = vertexPt_col,y = vertexPt_row,
+                          xend = terminalPt1_col,yend = terminalPt1_row,
+                          colour = regularGrid),
+                      size = 1.1,
+                      inherit.aes = FALSE) +
+         scale_colour_manual(values = c("#a50026"))) +
+      xlim(c(30,200)) +
+      ylim(c(275,NA))
+    
+    
+    return(list(ret1))
+    
+    
+  })
+```
+
+Plot a gray cell version of the aligned cells as an introduction to the cartridge case pair
+
+```{r}
+plt <- cmcPlot(compData$cellHeightValues[[1]],compData$alignedTargetCell[[1]],
+               cmcClassifs = compData1 %>%
+                 group_by(cellIndex) %>%
+                 filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
+                 slice(1) %>%
+                 mutate(originalMethod = "CMC"),type = "list") 
+
+
+(plt[[1]]+
+    theme(plot.title = element_blank(),
+          plot.subtitle = element_blank(),
+          strip.text = element_blank()) +
+    scale_fill_manual(values = "black")) + 
+  (plt[[2]]+
+     theme(plot.title = element_blank(),
+           plot.subtitle = element_blank(),
+           strip.text = element_blank()) +
+     scale_fill_manual(values = "black")) 
+```
