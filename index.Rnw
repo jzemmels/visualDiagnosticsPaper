@@ -179,24 +179,6 @@ Note that this introduces structurally missing values into the scan.
 \autoref{fig:processedSideBySide} shows the isolated breech face impression regions where the height values of the surface have been mapped to a diverging purple (low) to orange (high) color scale and missing values are shown in gray.
 \hh{Note that due to the scanning process the physical location of any measured values is relative, but the relationship of the measurements to each other is fixed. This means that we can, without affecting any structures, translate and even rotate measurements in 3d space. For the purpose of making scans comparable to each other, the scan surfaces are translated into XXXX what is being done exactly?} \jz{XXX I'm not sure what step in the algorithm you're referring to here. By "translated into," do you mean a horizontal/vertical shift? }\hh{Yes, I used translation in a mathematical sense here, so any shift in x, y or z direction. Sometimes we do these steps implicitly rather than in an explicit ... this is a step way. e.g. by changing from a grid to matrix we lose the physical extensions in x and y. Those are replaced by integer values first, and then rescaled into micron measurements later. That is an implicit translation in x and y. shifting a scan into a mean zero is an explicit translation, just as shifting a breech face impression is. I would very much like to use a robust estimate of the 2d breech face surface as the zero plane.} \hh{their mean and any tilts in xy direction are removed. While those tilts might stem from a small misalignments of the breech face, a bigger source of variability stems from a slight misalignment during the scanning. }
 
-\subsubsection*{Notational Conventions}
-
-As the name implies, surface matrices are two-dimensional arrays whose elements contain relative height values of the corresponding cartridge case surface \citep{x3p}.
-For notational simplicity, we assume that the matrices are square, i.e. $A \in \R^{k \times k}$ for some matrix $A$ and $k > 0$.
-Note, that any assumption of sizing of matrices are easily enforced by  padding with additional missing values. Due to the presence  of (structural) missing values around the breech face impression, additional padding does not interfere with the structure of the scan.
-We use lowercase letters with subscripts to denote a particular value of a matrix; e.g., $a_{ij}$ is the value in the $i$th row and $j$th column, starting from the top left corner, of $A$.
-
-For the purpose of dealing with missing values mathematically, we adapt standard matrix algebra as follows: if an element of either matrix $A$ or $B$ is missing, then any element-wise operation including this element is also missing, otherwise standard matrix algebra holds.
-For example, for matrices $A$ and $B \in \R^{k \times k}$ we define the addition operator as:
-\[
-A \oplus_{\tiny{NA}} B = \left( a_{ij} \oplus_{\tiny{NA}} b_{ij} \right)_{1 \le i,j \le k} :=
-\begin{cases}
-a_{ij} + b_{ij} & \text{ if both } a_{ij} \text{ and } b_{ij} \text{ are numbers}\\
-\text{NA } & \text{ otherwise}
-\end{cases}
-\]
-Operations $\ominus_{\tiny{NA}}$ as well as all comparisons are defined similarly. For the purpose of readability, we will use the standard algebraic operators $+, -, >, <, ...$ and apply the extended operations as defined above.
-
 
 <<matchPairExample, eval=TRUE,include=FALSE>>=
 data.frame(x=1:2,y=1:2,value=c(1,1)) %>%
@@ -303,7 +285,25 @@ We also demonstrate how the numerical diagnostics can be used as features to cla
 \item \jz{Conclusion}
 \end{itemize}
 
-\subsubsection*{Registration Procedure}
+\subsection*{Notational Conventions}
+
+As the name implies, surface matrices are two-dimensional arrays whose elements contain relative height values of the corresponding cartridge case surface \citep{x3p}.
+For notational simplicity, we assume that the matrices are square, i.e. $A \in \R^{k \times k}$ for some matrix $A$ and $k > 0$.
+Note, that any assumption of sizing of matrices are easily enforced by  padding with additional missing values. Due to the presence  of (structural) missing values around the breech face impression, additional padding does not interfere with the structure of the scan.
+We use lowercase letters with subscripts to denote a particular value of a matrix; e.g., $a_{ij}$ is the value in the $i$th row and $j$th column, starting from the top left corner, of $A$.
+
+For the purpose of dealing with missing values mathematically, we adapt standard matrix algebra as follows: if an element of either matrix $A$ or $B$ is missing, then any element-wise operation including this element is also missing, otherwise standard matrix algebra holds.
+For example, for matrices $A$ and $B \in \R^{k \times k}$ we define the addition operator as:
+\[
+A \oplus_{\tiny{NA}} B = \left( a_{ij} \oplus_{\tiny{NA}} b_{ij} \right)_{1 \le i,j \le k} :=
+\begin{cases}
+a_{ij} + b_{ij} & \text{ if both } a_{ij} \text{ and } b_{ij} \text{ are numbers}\\
+\text{NA } & \text{ otherwise}
+\end{cases}
+\]
+Operations $\ominus_{\tiny{NA}}$ as well as all comparisons are defined similarly. For the purpose of readability, we will use the standard algebraic operators $+, -, >, <, ...$ and apply the extended operations as defined above.
+
+\subsection*{Registration Procedure}
 
 \jz{Describe the general registration and cell-based comparison procedures here.
 Introduce terminology like "source" and "target" scans, direction subscripting, cell subscripting notation}
@@ -409,6 +409,16 @@ Calculate translation $[m^*_{A,t,\theta},n^*_{A,t,\theta}] = \arg \max_{m,n} (a_
 % @
 
 \section{Visual Diagnostics}
+
+\subsection{X3P Plot}
+
+\jz{Mathematical details of the X3P Plot (mapping quantiles of surface values to a divergent color scale)}
+
+\jz{Discuss how the X3P Plot helps in quickly identifying values that will unduly affect the registration procedure.}
+
+\jz{Show example of removing the extreme values and the affect it has on the color scale}
+
+\jz{Show example of pre-processing scans to remove }
 
 \subsection{Comparison Plots}
 
