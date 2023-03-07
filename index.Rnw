@@ -75,17 +75,21 @@ Come back to later
 %	ARTICLE CONTENTS
 %----------------------------------------------------------------------------------------
 
-<<setup, echo=FALSE, warning=FALSE, message=FALSE, cache=FALSE>>=
-library(knitr)
-library(cmcR) # remotes::install_github("CSAFE-ISU/cmcR@dev")
-library(impressions) # remotes::install_github("jzemmels/impressions")
-library(patchwork)
-library(x3ptools)
-library(raster) #install.packages("raster")
+<<setup, include=FALSE>>=
 library(tidyverse)
-theme_set(theme_bw())
+library(knitr)
+library(patchwork)
 
-# source("code/fiveplot.r")
+# install.packages("cmcR")
+library(cmcR)
+# remotes::install_github("jzemmels/impressions")
+library(impressions)
+
+library(x3ptools)
+# install.packages("raster")
+library(raster)
+
+theme_set(theme_bw())
 
 knitr::opts_chunk$set(
   fig.path="figures/", echo=FALSE,
@@ -93,22 +97,29 @@ knitr::opts_chunk$set(
   fig.align = "center",
   fig.pos = "htbp",
   strip.white = TRUE,
-  warning=TRUE, #FALSE, # better show warnings in general
+  warning=TRUE,
   cache = TRUE)
 
-# load("data/topMatchExampleScans.RData")
-# load("data/patchComparisonFeatures.RData")
-
 nonMatch_processed <- x3ptools::x3p_read("data/K002eG1_processed.x3p")
-source_processed <- x3ptools::x3p_read("data/K013sA1_processed.x3p") %>%
-  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,resy = nonMatch_processed$header.info$incrementY)
+nonMatch_processed$surface.matrix <- nonMatch_processed$surface.matrix*1e6
+reference_processed <- x3ptools::x3p_read("data/K013sA1_processed.x3p") %>%
+  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,
+                  resy = nonMatch_processed$header.info$incrementY)
+reference_processed$surface.matrix <- reference_processed$surface.matrix*1e6
 target_processed <- x3ptools::x3p_read("data/K013sA2_processed.x3p") %>%
-  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,resy = nonMatch_processed$header.info$incrementY)
+  x3p_interpolate(resx = nonMatch_processed$header.info$incrementX,
+                  resy = nonMatch_processed$header.info$incrementY)
+target_processed$surface.matrix <- target_processed$surface.matrix*1e6
+if(!file.exists("figures/K013sA2_original.png")){
+  ggsave(impressions::x3pPlot(target_processed),filename = "figures/K013sA2_original.png")
+}
+
+# visualize two cartridge case surfaces using an rgl device
+source("code/x3pSurfaceVisualization.R",local = TRUE)
 @
 
-<<cmcResults, eval=TRUE, cache = FALSE>>=
-# Requires the current dev (as of 2/14/22) version of cmcR
-comparisonResults_full <-
+<<comparisonResults_code,cache=TRUE,include=FALSE>>=
+comparisonResults_cell <-
   map2_dfr(list(target_processed,nonMatch_processed),
            c("K013sA2","K002eG1"),
            function(scan,scanName){
@@ -116,7 +127,7 @@ comparisonResults_full <-
              map_dfr(seq(-30,30,by = 3),
                      function(theta){
 
-                       comparison_allTogether(reference = source_processed,
+                       comparison_allTogether(reference = reference_processed,
                                               target = target_processed,
                                               theta = theta,numCells = c(8,8),
                                               maxMissingProp = .99,
@@ -127,18 +138,34 @@ comparisonResults_full <-
                dplyr::mutate(originalMethod = decision_CMC(cellIndex = cellIndex,x=x,y=y,theta=theta,corr=pairwiseCompCor),
                              comparisonName = paste0("K013sA1 vs. ",scanName))
 
-           })
-
-comparisonResults <- comparisonResults_full %>%
+           })  %>%
   dplyr::group_by(comparisonName,cellIndex) %>%
   dplyr::filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
   dplyr::ungroup()
 
-save(comparisonResults,file = "data/comparisonResults.RData")
+saveRDS(comparisonResults_cell,file = "data/comparisonResults_cell.rds")
+
+comparisonResults_fullScan <- map_dfr(seq(-30,30,by = 3),
+                                      function(theta){
+
+                                        reference_processed %>%
+                                          comparison_allTogether(target = target_processed,
+                                                                 theta = theta,
+                                                                 numCells = c(1,1),
+                                                                 maxMissingProp = .99,
+                                                                 sideLengthMultiplier = 1.1,
+                                                                 returnX3Ps = TRUE)
+
+                                      }) %>%
+  filter(fft_ccf == max(fft_ccf)) %>%
+  mutate(comparisonName = "K013sA1 vs. K013sA2")
+
+saveRDS(comparisonResults_fullScan,file = "data/comparisonResults_fullScan.rds")
 @
 
-<<cmcResults_load>>=
-load("data/comparisonResults.RData")
+<<include=FALSE>>=
+comparisonResults_cell <- readRDS("data/comparisonResults_cell.rds")
+comparisonResults_fullScan <- readRDS("data/comparisonResults_fullScan.rds")
 @
 
 
@@ -155,7 +182,7 @@ When a firearm is discharged, the projectile is propelled down the barrel of the
 The base of the cartridge case (\autoref{fig:cartridgeCaseBase}) strikes the back wall, known as the \emph{breech face}, of the barrel with considerable force, thereby imprinting any markings on the breech face onto the cartridge case and creating the so-called \emph{breech face impressions} (see \autoref{fig:breechFaceImpressions}).
 These markings have been suggested to be unique to a firearm and are used in forensic examinations to determine whether two cartridge cases have been fired by the same firearm.
 
-\begin{figure}[hbt]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{images/cartridgeCaseZoomIn.png}
 \subfloat[\label{fig:cartridgeCaseBullet} Fired cartridge case and bullet \citep{firearm_id_thompson}]{\hspace{.27\linewidth}}
@@ -168,7 +195,7 @@ These markings have been suggested to be unique to a firearm and are used in for
 
 
 We measure the surface of a cartridge case using a TopMatch-3D High-Capacity Scanner \citep{topmatch} by Cadre Forensics\texttrademark.
-This scanner collects images under various lighting conditions of a gel pad into which the cartridge case surface is impressed and combines these images into a regular 2D array called a \emph{surface matrix}. Examples of two such surface matrices are shown in \autoref{fig:sourceAnnotated} and \autoref{fig:targetAnnotated}.
+This scanner collects images under various lighting conditions of a gel pad into which the cartridge case surface is impressed and combines these images into a regular 2D array called a \emph{surface matrix}. Examples of two such surface matrices are shown in \autoref{fig:referenceAnnotated} and \autoref{fig:targetAnnotated}.
 The physical dimensions of these objects are about 5.5 $mm^2$ captured at a resolution of 1.84 microns per pixel (1000 microns equals 1 mm).
 Each element of the surface matrix corresponds to the height of the impressed gel at that location.
 The nominal resolution for height measurements depends on the viscosity of the gel and is reported to be better than 1 micron.
@@ -180,65 +207,16 @@ Note that this introduces structurally missing values into the scan.
 \hh{Note that due to the scanning process the physical location of any measured values is relative, but the relationship of the measurements to each other is fixed. This means that we can, without affecting any structures, translate and even rotate measurements in 3d space. For the purpose of making scans comparable to each other, the scan surfaces are translated into XXXX what is being done exactly?} \jz{XXX I'm not sure what step in the algorithm you're referring to here. By "translated into," do you mean a horizontal/vertical shift? }\hh{Yes, I used translation in a mathematical sense here, so any shift in x, y or z direction. Sometimes we do these steps implicitly rather than in an explicit ... this is a step way. e.g. by changing from a grid to matrix we lose the physical extensions in x and y. Those are replaced by integer values first, and then rescaled into micron measurements later. That is an implicit translation in x and y. shifting a scan into a mean zero is an explicit translation, just as shifting a breech face impression is. I would very much like to use a robust estimate of the 2d breech face surface as the zero plane.} \hh{their mean and any tilts in xy direction are removed. While those tilts might stem from a small misalignments of the breech face, a bigger source of variability stems from a slight misalignment during the scanning. }
 
 
-<<matchPairExample, eval=TRUE,include=FALSE>>=
-data.frame(x=1:2,y=1:2,value=c(1,1)) %>%
-  x3ptools::df_to_x3p() %>%
-  x3ptools::x3p_image()
-
-x3ptools::read_x3p("data/NIST_K013sA1.x3p") %>%
-  x3ptools::x3p_sample(m=4) %>%
-  x3ptools::x3p_rotate() %>%
-  x3ptools::x3p_flip_y() %>%
-  x3ptools::x3p_rotate(angle = 270) %>%
-  x3ptools::x3p_image(size = c(750,750),zoom=.75)
-x3ptools::x3p_snapshot(file = "figures/topMatchAnnotatedSource.png")
-
-x3ptools::read_x3p("data/NIST_K013sA2.x3p") %>%
-  x3ptools::x3p_sample(m=4) %>%
-  x3ptools::x3p_rotate() %>%
-  x3ptools::x3p_flip_y() %>%
-  x3ptools::x3p_rotate(angle = 270) %>%
-  x3ptools::x3p_image(size = c(750,750),zoom=.75)
-x3ptools::x3p_snapshot(file = "figures/topMatchAnnotatedTarget.png")
-
-x3pPlts <- cmcR::x3pListPlot(list("K013sA1" = source_processed,
-                                  "K013sA2" = target_processed)
-                             ,type = "list",na.value = "gray65") %>%
-  map(~ {
-
-    . + theme(legend.position = "none",plot.title = element_text(hjust = .5))
-
-  })
-
-
-x3pCombinedPlt <- (x3pPlts[[1]]+
-                     theme(plot.title = element_text(vjust = -32,
-                                                     hjust = .6,
-                                                     size = 18))) /
-  (x3pPlts[[2]] +
-     theme(plot.title = element_text(vjust = -32,
-                                     hjust = .6,
-                                     size = 18)))
-
-ggsave(plot = x3pCombinedPlt,filename = "figures/sourceTargetSideBySide.png",bg ="white")
-
-knitr::plot_crop("figures/sourceTargetSideBySide.png")
-
-knitr::plot_crop("figures/topMatchAnnotatedSource.png")
-knitr::plot_crop("figures/topMatchAnnotatedTarget.png")
-@
-
-
-\begin{figure}
+\begin{figure}[htbp]
 \centering
 \begin{subfigure}[c]{0.35\textwidth}
 K013sA1 \hfill\newline
-\includegraphics[width=\textwidth]{figures/topMatchAnnotatedSource.png}
+\includegraphics[width=\textwidth]{figures/topMatchAnnotatedreference.png}
 \caption{Cartridge case scan K013sA1 with breech face (BF) impressions manually annotated in red.}
-\label{fig:sourceAnnotated}
+\label{fig:referenceAnnotated}
 \end{subfigure}
 \begin{subfigure}[c]{0.2\textwidth}
-\includegraphics[width=\textwidth]{figures/sourceTargetSideBySide.png}
+\includegraphics[width=\textwidth]{figures/referenceTargetSideBySide.png}
 \caption{Processed surface matrices.}
 \label{fig:processedSideBySide}
 \end{subfigure}
@@ -285,7 +263,7 @@ We also demonstrate how the numerical diagnostics can be used as features to cla
 \item \jz{Conclusion}
 \end{itemize}
 
-\subsection*{Notational Conventions}
+\subsection{Notational Conventions}
 
 As the name implies, surface matrices are two-dimensional arrays whose elements contain relative height values of the corresponding cartridge case surface \citep{x3p}.
 For notational simplicity, we assume that the matrices are square, i.e. $A \in \R^{k \times k}$ for some matrix $A$ and $k > 0$.
@@ -303,18 +281,15 @@ a_{ij} + b_{ij} & \text{ if both } a_{ij} \text{ and } b_{ij} \text{ are numbers
 \]
 Operations $\ominus_{\tiny{NA}}$ as well as all comparisons are defined similarly. For the purpose of readability, we will use the standard algebraic operators $+, -, >, <, ...$ and apply the extended operations as defined above.
 
-\subsection*{Registration Procedure}
+\subsection{Registration Procedure}
 
-\jz{Describe the general registration and cell-based comparison procedures here.
-Introduce terminology like "source" and "target" scans, direction subscripting, cell subscripting notation}
-
-\jz{NOTE: need to tweak the text below, which was copied directly from the JDSSV submission}
+\jz{[Include visual illustrating the full scan and cell-based registrations]}
 
 A critical step in comparing $A$ and $B$ is to find a transformation of $B$ such that it aligns best to $A$ (or vice versa).
-In image processing, this is called *image registration.* Noting that $A$ and $B$ are essentially grayscale images, we rely on a standard image registration technique \citep{Brown1992}.
+In image processing, this is called \textit{image registration}. Noting that $A$ and $B$ are essentially grayscale images, we rely on a standard image registration technique \citep{Brown1992}.
 
 In our application, a registration is composed of a discrete translation by $(m,n) \in \mathbb{Z}^2$ and rotation by $\theta \in [-180^\circ,180^\circ]$.
-To determine the optimal registration, we calculate the *cross-correlation function* (CCF) between $A$ and $B$, which measures the similarity between $A$ and $B$ for every possible translation of $B$, denoted $(A \star B)$.
+To determine the optimal registration, we calculate the \textit{cross-correlation function} (CCF) between $A$ and $B$, which measures the similarity between $A$ and $B$ for every possible translation of $B$, denoted $(A \star B)$.
 We estimate the registration by calculating the maximum CCF value across a range of rotations of matrix $B$.
 Let $B_\theta$ denote $B$ rotated by an angle $\theta \in [-180^\circ,180^\circ]$ and $b_{\theta_{mn}}$ the $m,n$-th element of $B_\theta$.
 Then the estimated registration $(m^*,n^*,\theta^*)$ is:
@@ -326,10 +301,10 @@ Then the estimated registration $(m^*,n^*,\theta^*)$ is:
 In practice we consider a discrete grid of rotations $\pmb{\Theta} \subset [-180^\circ,180^\circ]$.
 The registration procedure is outlined in \autoref{alg:registration}.
 We refer to the matrix that is rotated as the "target."
-The result is the estimated registration of the target matrix to the "source" matrix.
+The result is the estimated registration of the target matrix to the "reference" matrix.
 
 \begin{algorithm}[htbp]
-\KwData{Source matrix $A$, target matrix $B$, and rotation grid $\pmb{\Theta}$}
+\KwData{Reference matrix $A$, target matrix $B$, and rotation grid $\pmb{\Theta}$}
 \KwResult{Estimated registration of $B$ to $A$, $(m^*,n^*,\theta^*)$, and cross-correlation function maximum, $CCF_{\max}$}
 \For{$\theta \in \pmb{\Theta}$}{
 Rotate $B$ by $\theta$ to obtain $B_\theta$\;
@@ -343,16 +318,16 @@ Calculate rotation $\theta^* = \arg \max_{\theta} \{CCF_{\max,\theta} : \theta \
 \label{alg:registration}
 \end{algorithm}
 
-\jz{[Song (2013)] points out that two matching cartridge cases may only have a handful of regions with distinguishable, matching impressions due to inherent variability in the firing process.
+\citet{song_proposed_2013} points out that two matching cartridge cases may only have a handful of regions with distinguishable, matching impressions due to inherent variability in the firing process.
 Calculating a correlation between two full scans as in \autoref{alg:registration} may not highlight their similarities.
-Instead, [Song (2013)] proposes partitioning one of the scans into a grid of "cells" and estimating the registration between each cell and the other scan.}
+Instead, \citet{song_proposed_2013} proposes partitioning one of the scans into a grid of "cells" and estimating the registration between each cell and the other scan.
 
 We now extend the surface matrix notation introduced previously to accommodate cells.
 Let $A_{t}$ denote the $t$th cell of matrix $A$, $t = 1,...,T_A$ where $T_A$ is the total number of cells containing non-missing values (e.g., $T_A = 43$ in \autoref{fig:cellGridExample}) in scan $A$ and let $(a_t)_{ij}$ denote the $i,j$-th element of $A_t$.
 This procedure can be viewed as a generalization of \autoref{alg:registration} that we call the "cell-based comparison procedure" and outline in \autoref{alg:cellComparison}.
 
 \begin{algorithm}[H]
-\KwData{Source matrix $A$, target matrix $B^*$, cell grid size $R \times C$, and rotation grid $\pmb{\Theta}'_A$}
+\KwData{Reference matrix $A$, target matrix $B^*$, cell grid size $R \times C$, and rotation grid $\pmb{\Theta}'_A$}
 \KwResult{Estimated translations and $CCF_{\max}$ values per cell, per rotation}
 Partition $A$ into a grid of $R \times C$ cells\;
 Discard cells containing only missing values, leaving $T_A$ remaining cells\;
@@ -368,130 +343,369 @@ Calculate translation $[m^*_{A,t,\theta},n^*_{A,t,\theta}] = \arg \max_{m,n} (a_
 \label{alg:cellComparison}
 \end{algorithm}
 
-\jz{TODO: Show a figure of the cell-based comparison results. Make it a cmcPlot where all cells are gray}
-
-% <<cmcPlot, eval=TRUE,include=FALSE>>=
-% matchingCMCPlt <- cmcR::cmcPlot(
-%   reference = source_processed,
-%   target = target_processed,
-%   cmcCol = "originalMethod",
-%   cmcClassifs = comparisonResults %>%
-%     filter(comparisonName == "K013sA1 vs. K013sA2")
-% )
-%
-% design <-
-%   "AB"
-%
-% cmcPltCombined <-
-%   patchwork::wrap_plots(
-%     matchingCMCPlt[[1]] +
-%       theme(strip.text = element_blank(),
-%             plot.margin = margin(0,0,-20000,0),
-%             plot.subtitle = element_text(hjust = .5,size = 12,vjust=-50)) +
-%       annotation_custom(grid::textGrob(label="Source\nK013sA1")),
-%     #  labs(subtitle = "Source: K013sA1"),
-%     matchingCMCPlt[[2]] +
-%       theme(strip.text = element_blank(),
-%             plot.margin = margin(0,0,-20000,0),
-%             plot.subtitle = element_text(hjust = .57,size = 12,vjust=-50)) +
-%       annotation_custom(grid::textGrob(label="Target\nK013sA2", x = unit(0.6, "npc"))),
-%     #  labs(subtitle = "Target: K013sA2"),
-%     design = design,widths = c(.88,1)) +
-%   patchwork::inset_element(matchingCMCPlt[[3]],left = -.85,bottom = -.6,right = 1,top = 1,align_to = "full")
-%
-% ggsave('figures/cmcPlot.png', plot = cmcPltCombined,
-%        width = 7.53*.75, height = 6.67*.75)
-% knitr::plot_crop("figures/cmcPlot.png")
-% @
-%
-% <<echo=FALSE,fig.cap='\\label{fig:cmcPlot_match} Congruent Matching Cell classifications from comparing two matching cartridge cases. CMCs are shown in blue and correspond to source scan cells that reach a consensus on the registration angle and translation in the target scan. Non-CMCs are shown in red and represent the registration at which the registration cells attain their largest CCF value across all rotations and translations considered.',fig.pos='htbp',out.width=".8\\textwidth", fig.align = 'center', cache=FALSE>>=
-% knitr::include_graphics("figures/cmcPlot.png")
-% @
+\jz{[Describe what we expect to see in $\pmb{F}_A$. E.g., agreement in registrations for matching scans.]}
 
 \section{Visual Diagnostics}
 
-\subsection{X3P Plot}
+\subsection{The X3P Plot}
 
-\jz{Mathematical details of the X3P Plot (mapping quantiles of surface values to a divergent color scale)}
+The first visual diagnostic tool we discuss is the "X3P plot" which is used to visualize the values of a scan's surface matrix.
+We show an example of an X3P plot in \autoref{fig:preProcessEffectExample}, which will be discussed in more detail below.
+The orientation of the X3P plot is the same as its underlying surface matrix, meaning the top left-most pixel represents the $[1,1]$-th element of the surface matrix followed the $[1,2]$-th element to its immediate right and so on.
+To construct the X3P plot, we map 11 percentiles of the non-missing values in a surface matrix to the continuous, divergent purple-white-orange color scheme illustrated in \autoref{fig:x3pPlot_colorscheme}.
+The darkest shades of purple and orange represent the minimum and maximum surface values, respectively.
+We use a very light shade of gray to represent the median surface value to ensure symmetry in the percentile mapping.
+Rather than mapping deciles to the 11 colors (minimum, 10th percentile, 20th percentile, etc.), we've found the more polarized mapping shown in \autoref{fig:x3pPlot_colorscheme} to be more effective at emphasizing extreme surface values, which are commonly associated with the most prominent impressions.
 
-\jz{Discuss how the X3P Plot helps in quickly identifying values that will unduly affect the registration procedure.}
 
-\jz{Show example of removing the extreme values and the affect it has on the color scale}
+\begin{figure}[htbp]
+\centering
+\includegraphics[clip,width=\textwidth]{images/x3pPlot_colorscheme.png}
+\caption{The percentiles (top) and hexidecimal color values (bottom) used in the color mapping of the X3P plot.}
+\label{fig:x3pPlot_colorscheme}
+\end{figure}
 
-\jz{Show example of pre-processing scans to remove }
+To visualize two or more scans using the X3P plot, we map percentiles of the pooled surface values to the same color scale.
+This allows us to compare the relative sizes of impressions across multiple cartridge cases.
+The registration procedure outlined in \autoref{alg:registration} is highly sensitive to extreme values on either surface, so performing a visual comparison of two scans using the X3P plot is useful for identifying whether further processing of either scan is needed.
 
-\subsection{Comparison Plots}
+\autoref{fig:preProcessEffectExample} shows two examples of the registration output for a matching pair of scans labeled K002eG2 and K227iG3.
+In the top plot we see that both scans contain large, extraneous markings that may affect the registration procedure.
+There is a ring of raised observations around the center of K002eG2 that is an artifact of the deformation that occurs when the firing pin strikes the cartridge case primer.
+Additionally, there are large dent-like markings on both K002eG2 and K227iG3.
+Registering these two scans using \autoref{alg:registration} results in $CCF_{\max} = 0.14$ at registration $(m^*,n^*,\theta^*) = (4,19,-6^\circ)$.
 
-To create the visual diagnostics, we perform element-wise matrix operations.
-In particular, for a matrix $X \in \mathbb{R}^{k \times k}$ and condition $cond: \mathbb{R}^{k \times k} \to \{TRUE,FALSE\}^{k \times k}$, we define an element-wise filter operation $\mathcal{F}: \mathbb{R}^{k \times k} \to \mathbb{R}^{k \times k}$ as:
+The bottom plot of \autoref{fig:preProcessEffectExample} shows the registrations of K002eG2 and K227iG3 after applying the additional pre-processing of removing the extraneous regions.
+The output of \autoref{alg:registration} is now $CCF_{\max} = 0.29$ at registration $(m^*,n^*,\theta^*) = (6,18,-6^\circ)$.
+Although the registrations are similar for both pairs of scans, the cross-correlation value more than doubles when we remove the extraneous regions.
+We also note that removal of the extreme values makes it easier to visually identify similar markings between K002eG2 and K227iG3, such as the "striped" impressions at the top of the two scans.
+Highlighting such similarities is one of the strengths of the X3P plot.
+
+<<preProcessEffectExample_code, include=FALSE,cache=TRUE>>=
+
+# compare original scans
+barrelB_scan1_original <- x3ptools::x3p_read("data/K002eG2_original.x3p")
+barrelB_scan2_original <- x3ptools::x3p_read("data/K227iG3_original.x3p")
+barrelB_scan2_original <- x3ptools::x3p_interpolate(barrelB_scan2_original,resx = barrelB_scan1_original$header.info$incrementY)
+
+barrelB_originalComparison <- scored::comparison_fullScan(barrelB_scan1_original,
+                                                          barrelB_scan2_original) %>%
+  filter(direction == "reference_vs_target") %>%
+  filter(fft_ccf == max(fft_ccf))
+
+scan1_original_aligned <- barrelB_originalComparison$cellHeightValues[[1]]
+scan1_original_aligned$surface.matrix <-
+  barrelB_originalComparison$cellHeightValues[[1]]$surface.matrix*barrelB_originalComparison$cellHeightValues[[1]]$cmcR.info$scaleByVal + barrelB_originalComparison$cellHeightValues[[1]]$cmcR.info$centerByVal
+
+scan2_original_aligned <- barrelB_originalComparison$alignedTargetCell[[1]]
+scan2_original_aligned$surface.matrix <-
+  barrelB_originalComparison$alignedTargetCell[[1]]$surface.matrix*barrelB_originalComparison$alignedTargetCell[[1]]$cmcR.info$scaleByVal + barrelB_originalComparison$alignedTargetCell[[1]]$cmcR.info$centerByVal
+
+# compare scans with extra pre-processing
+barrelB_scan1_preProc <- x3ptools::x3p_read("data/K002eG2_processed.x3p")
+barrelB_scan2_preProc <- x3ptools::x3p_read("data/K227iG3_processed.x3p")
+barrelB_scan2_preProc <- x3ptools::x3p_interpolate(barrelB_scan2_preProc,resx = barrelB_scan1_preProc$header.info$incrementY)
+
+barrelB_preProcComparison <- scored::comparison_fullScan(barrelB_scan1_preProc,
+                                                         barrelB_scan2_preProc) %>%
+  filter(direction == "reference_vs_target") %>%
+  filter(fft_ccf == max(fft_ccf))
+
+scan1_preProc_aligned <- barrelB_preProcComparison$cellHeightValues[[1]]
+scan1_preProc_aligned$surface.matrix <-
+  barrelB_preProcComparison$cellHeightValues[[1]]$surface.matrix*barrelB_preProcComparison$cellHeightValues[[1]]$cmcR.info$scaleByVal + barrelB_preProcComparison$cellHeightValues[[1]]$cmcR.info$centerByVal
+
+scan2_preProc_aligned <- barrelB_preProcComparison$alignedTargetCell[[1]]
+scan2_preProc_aligned$surface.matrix <-
+  barrelB_preProcComparison$alignedTargetCell[[1]]$surface.matrix*barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$scaleByVal + barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$centerByVal
+
+plt1 <- impressions::x3pPlot(scan1_original_aligned,scan2_original_aligned,
+                x3pNames = c("K002eG2 Original","K227iG3 Original"),
+                legend.quantiles = c(0,.01,.5,.99,1),
+                legendLength = 10) +
+  labs(caption = paste0("CCF: ",round(barrelB_originalComparison$fft_ccf,2))) +
+  theme(plot.caption = element_text(hjust = .5))
+
+plt2 <- impressions::x3pPlot(scan1_preProc_aligned,scan2_preProc_aligned,
+                x3pNames = c("K002eG2 + Additional Pre-processing","K227iG3 + Additional Pre-processing"),
+                legend.quantiles = c(0,.01,.5,.99,1),
+                legendLength = 10) +
+  labs(caption = paste0("CCF: ",round(barrelB_preProcComparison$fft_ccf,2))) +
+  theme(plot.caption = element_text(hjust = .5))
+
+ggsave(plot = {patchwork::wrap_plots(plt1,plt2,ncol = 1)},filename = "figures/preProcessEffectExample.png")
+@
+
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/preProcessEffectExample.png}
+\caption{Registration results from comparing two versions of a matching pair of cartridge case scans. In the first comparison (top), extraneous values are left in the scan which causes the overall $CCF_{\max}$ value to be relatively low (0.14). When these values are removed (bottom), the CCF value more than doubles to 0.29. The X3P plot is useful for identifying scans that are in need of additional pre-processing.}
+\label{fig:preProcessEffectExample}
+\end{figure}
+
+\subsection{The Comparison Plot}
+
+The "comparison plot" is a visual diagnostic tool that uses the X3P plot to directly compare the surface values of two scans.
+The comparison plot provides a quick, intuitive assessment by partitioning the surfaces into similarities and differences.
+To construct the comparison plot we first obtain two aligned scans $A$ and $B*$ using \autoref{alg:registration}.
+A comparison plot like the one shown in \autoref{fig:complementCompPlot_fullScan} depicts aligned versions of the two scans $A$ = K013sA1 and $B$ = K013sA2 shown in \autoref{fig:processedSideBySide}.
+The dark gray (gray40) elements in these two visualizations represent the non-overlapping elements from the other scan.
+Next, we wish to partition these $A$ and $B^*$ into similarities and differences using a filter operation.
+
+For a matrix $X \in \mathbb{R}^{k \times k}$ and Boolean-valued condition matrix $cond: \mathbb{R}^{k \times k} \to \{TRUE,FALSE\}^{k \times k}$, we define an element-wise filter operation $\mathcal{F}: \mathbb{R}^{k \times k} \to \mathbb{R}^{k \times k}$ as:
+
 \begin{align*}
 \mathcal{F}_{cond}(X) =
 (f_{ij})_{1 \leq i,j \leq k} =
 \begin{cases}
 x_{ij} &\text{if $cond$ is $TRUE$ for element $i,j$} \\
-NA &\text{otherwise}
+NA &\text{otherwise.}
 \end{cases}
 \end{align*}
-Of particular interest in our application is the (absolute) difference between surface matrices.
-For example, $\mathcal{F}_{|A - B| > \tau}(A)$ contains elements of matrix $A$ where the pair of scans $A$ and $B$ deviate by at least $\tau \in \mathbb{R}$.
-Surface values in $A$ and $B^*$ that are "close," meaning within $\tau$ distance, to each other are replaced with $NA$ in this filtered matrix.
 
-Consider \autoref{fig:filterLabeling} that shows the filtered element-wise average $\mathcal{F}_{|A - B^*| < \tau}\left(\frac{1}{2}(A + B^*)\right)$ on the left and the associated $cond$ matrix $|A - B^*| < \tau$ visualized in black-and-white in the middle where filtered elements are shown in white.
-We use a connected components labeling algorithm detailed in [Haralick and Shapiro (1992)] to identify individual neighborhoods of filtered elements.
-More precisely, the algorithm returns a set of sets $\pmb{S}_d = \{S_{d,1},S_{d,2},...,S_{d,L_d}\}$ where each $S_{d,l}$ is a set of indices of the $cond$ matrix that have a value of $TRUE$ and are connected by a chained-together sequence of 4 (Rook's) neighborhoods.
-The right side of \autoref{fig:filterLabeling} shows each $S_{d,l}$ distinguished by different fill colors, $l = 1,...,L_d$.
+The resulting $\mathcal{F}_{cond}(X)$ is a copy of the matrix $X$ where elements for which $cond$ is $TRUE$ are replaced with $NA$.
+The filtering operation allows us to isolate elements of a surface matrix that satisfy some criterion.
+For example, we can isolate a surface matrix to only those elements that are close to the elements of another surface matrix.
 
-<<fullScanComparisonCalculation,cache=TRUE>>=
-fullScan_comparisonData <- map_dfr(seq(-30,30,by = 3),
-                                   function(theta){
+We compute the element-wise average $\frac{1}{2}(A + B^*)$ and absolute difference $|A - B^*|$ as shown in the left and middle of \autoref{fig:averageFilterExample}.
+We also construct Boolean-valued matrices $|A - B^*| \leq \tau$ and $|A - B^*| > \tau$ based on whether the element-wise absolute difference is at most or greater than a threshold $\tau > 0$.
+For example, the right side of \autoref{fig:averageFilterExample} shows the elements of matrix $|A - B^*| > 1.5$ with $TRUE$ elements represented as white pixels and $FALSE$ elements as black pixels.
+% We note that there are many more $FALSE$ elements, where the surfaces of $A$ and $B^*$ are "close," than $TRUE$ elements.
 
-                                     source_processed %>%
-                                       comparison_allTogether(target = target_processed,
-                                                              theta = theta,
-                                                              numCells = c(1,1),
-                                                              maxMissingProp = .99,
-                                                              sideLengthMultiplier = 1.1,
-                                                              returnX3Ps = TRUE)
 
-                                   }) %>%
-  filter(fft_ccf == max(fft_ccf)) %>%
-  mutate(comparisonName = "K013sA1 vs. K013sA2")
-@
-
-<<fullScanComparisonPlot,include = FALSE,cache=TRUE>>=
-source <- fullScan_comparisonData %>%
+<<include=FALSE>>=
+reference <- comparisonResults_fullScan %>%
   pull(cellHeightValues) %>%
   .[[1]]
 
-target <- fullScan_comparisonData %>%
+reference$surface.matrix <- reference$surface.matrix*reference$cmcR.info$scaleByVal
+
+target <- comparisonResults_fullScan %>%
   pull(alignedTargetCell) %>%
   .[[1]]
 
+target$surface.matrix <- target$surface.matrix*target$cmcR.info$scaleByVal
+@
+
+<<comparisonPlot_filterIllustration_code,include=FALSE,cache=TRUE>>=
+impressions::x3pPlot(reference,target,x3pNames = c("K013sA1","K013sA2"),type = "list") %>%
+  walk2(c("K013sA1","K013sA2"),~  {
+    ggsave(filename = paste0("figures/",.y,"_fullScan.png"),plot = .x,bg="white")
+  })
+
+elementwiseAverage_plt <- impressions::x3pPlot(impressions::x3p_elemAverage(reference,target),
+                                               x3pNames = "Element-wise Average",
+                                               legendLength = 7,
+                                               legend.quantiles = c(0,.01,.5,.99,1)) +
+  ggplot2::guides(fill = ggplot2::guide_colourbar(barheight = 7,
+                                                  label.theme = ggplot2::element_text(size = 5),
+                                                  title.theme = ggplot2::element_text(size = 7),
+                                                  frame.colour = "black",
+                                                  ticks.colour = "black"))
+
+ggsave(plot = elementwiseAverage_plt,
+       filename = "figures/elementwiseAverage_fullScan.png",bg="white")
+
+surfaceDistance <- reference
+
+surfaceDistance$surface.matrix <- abs(reference$surface.matrix - target$surface.matrix)
+
+surfaceDistance_df <- surfaceDistance %>%
+  impressions::x3p_to_dataFrame()
+
+surfaceDistance_plt <- surfaceDistance_df %>%
+  mutate(x3p = "Element-wise Absolute Difference") %>%
+  ggplot2::ggplot(ggplot2::aes(x = x,y = y)) +
+  ggplot2::geom_raster(ggplot2::aes(fill = value))  +
+  ggplot2::scale_fill_gradientn(colours = c('#2d004b','#542788','#8073ac','#b2abd2','#d8daeb','#f7f7f7',
+                                                     '#fee0b6','#fdb863','#e08214','#b35806','#7f3b08'),
+                                                     values = scales::rescale(quantile(surfaceDistance_df$value,
+                                                                                       c(0,.01,.025,.1,.25,.5,.75,0.9,.975,.99,1),
+                                                                                       na.rm = TRUE)),
+                                breaks = function(lims){
+                                  dat <- quantile(surfaceDistance_df$value,c(0,.8736,.99,1),na.rm = TRUE)
+
+                                  dat <- dat %>%
+                                    setNames(paste0(names(dat)," [",round(dat,3),"]"))
+
+                                  return(dat)
+                                },
+                                limits = c(0,NA),
+                                na.value = "grey65") +
+  ggplot2::coord_fixed(expand = FALSE) +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    axis.title.x = ggplot2::element_blank(),
+    axis.text.x = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank(),
+    axis.title.y = ggplot2::element_blank(),
+    axis.text.y = ggplot2::element_blank(),
+    axis.ticks.y = ggplot2::element_blank(),
+    panel.grid.major = ggplot2::element_blank(),
+    panel.grid.minor = ggplot2::element_blank(),
+    panel.background = ggplot2::element_blank()) +
+  ggplot2::guides(fill = ggplot2::guide_colourbar(barheight = 7,
+                                                  label.theme = ggplot2::element_text(size = 5),
+                                                  title.theme = ggplot2::element_text(size = 7),
+                                                  frame.colour = "black",
+                                                  ticks.colour = "black"),
+                  colour = 'none') +
+  ggplot2::labs(fill = expression("Rel. Height ["*mu*"m]")) +
+  ggplot2::facet_wrap(~ x3p)
+
+
+ggsave(surfaceDistance_plt,filename = "figures/surfaceDistance.png",bg="white")
+
+surfaceDistance_bin <- surfaceDistance
+
+surfaceDistance_bin$surface.matrix <- {surfaceDistance_bin$surface.matrix > 1.5}
+
+surfaceDistance_bin_plt <- surfaceDistance_bin %>%
+  impressions::x3p_to_dataFrame() %>%
+  ggplot(aes(x=x,y=y,fill=value)) +
+  geom_raster() +
+  coord_fixed(expand=FALSE) +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("black","white"),na.value = "gray65")
+
+ggsave(surfaceDistance_bin_plt,filename = "figures/surfaceDistance_bin.png")
+
+library(patchwork)
+
+plt <- ((elementwiseAverage_plt +
+           labs(title = "Element-wise\nAverage") +
+           theme(strip.text = element_blank(),
+                 plot.title = element_text(hjust = .55,vjust = -45,size = 8))) +
+          (surfaceDistance_plt +
+             labs(title = "Element-wise\nAbsolute\nDifference") +
+             theme(strip.text = element_blank(),
+                   plot.title = element_text(hjust=.55,vjust=-45,size = 8))) +
+          (surfaceDistance_bin_plt +
+             labs(title = "Abs. Difference > 1.5") +
+             theme(strip.text = element_blank(),
+                   plot.title = element_text(hjust=.65,vjust=-40,size = 8)))) +
+  patchwork::plot_annotation(title = "K013sA1 vs. Aligned K013sA2",
+                             theme = theme(plot.title = element_text(size = 10,hjust = .5,vjust = -15)))
+
+ggsave(plt,filename = "figures/averageFilterExample.png",bg = "white")
+knitr::plot_crop("figures/averageFilterExample.png")
+
+patchComparisonPlts_list <-
+  impressions::x3p_comparisonPlot(x3p1 = reference,x3p2 = target,
+                                  plotLabels = c(" ","  ","   ","    ","     "),
+                                  legendLength = grid::unit(4,"in"),
+                                  type = "list")
+
+ggsave(patchComparisonPlts_list$`   `,filename = "figures/elementwiseAverage_filtered.png")
+@
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/averageFilterExample.png}
+\caption{To construct the comparison plot after aligning the scans K013sA1 and K013sA2 shown in \autoref{fig:processedSideBySide}, we compute their element-wise average (left) and element-wise absolute difference (middle). We then compute a Boolean-valued matrix based on whether the elements of the element-wise absolute difference is greater or less than 1.5 microns (right). We use this Boolean matrix to distinguish between similarities and differences in the scan impressions.}
+\label{fig:averageFilterExample}
+\end{figure}
+
+
+The middle column of the comparison plot shows the filtered element-wise matrix $\mathcal{F}_{|A - B^*| \leq \tau}\left(\frac{1}{2}(A + B^*)\right)$.
+By isolating the element-wise average to "close" surface values between $A$ and $B^*$, the filtered element-wise average emphasizes similar markings between the two scans.
+In \autoref{fig:complementCompPlot_fullScan}, we use a filtering threshold of $\tau = 1.5$ microns and represent filtered elements in light gray (gray80).
+This filtered element-wise average illustrates that there are many similarities between the two surfaces.
+To identify similarities using the element-wise average, we have found it most effective to scan the filtered element-wise average plot for distinctive markings, such as the deep purple and orange markings in the 5 o'clock position of the firing pin hole in \autoref{fig:complementCompPlot_fullScan}.
+After identifying distinctive markings, it is relatively easy to identify the contributing markings from $A$ and $B^*$ by considering the same region in the two plots in the left column.
+For example, we see deep purple and orange striped impressions in the 5 o'clock positions of $A$ and $B^*$ in \autoref{fig:complementCompPlot_fullScan}.
+Cross-referencing the filtered element-wise average with the individual scans allows us to assess the degree of similarity and spatial relationship between markings on the two scans.
+
+Complementary to the filtered element-wise average, the right column of the comparison plot shows differences between the two scans.
+While it is visually obvious when scans share similar markings, characterizing different markings can be challenging.
+For example, two markings may be different in their depth, shape, orientation, or spatial relationship to other markings.
+As such, we visualize two filtered versions of the aligned scans $\mathcal{F}_{|A - B^*| > \tau}(A)$ and $\mathcal{F}_{|A - B^*| > \tau}(B^*)$ to emphasize differences.
+The right column of \autoref{fig:complementCompPlot_fullScan} shows the filtered differences between scans $A$ and $B^*$ using a cutoff threshold of $\tau = 1.5$ microns.
+Again, we've found it useful to study the two filtered plots to identify differences that can be cross-referenced against the original scans.
+For example, scan $B^*$ has a dent-like marking at the 11 o'clock position of the firing pin hole that is not present in $A$.
+On the other hand, we note a dark orange region in the 5 o'clock position, where we had previously noted similarities, that is treated as a difference.
+Considering the original scans in the left column, we see that these orange regions are indeed part of the striped purple and orange impression region.
+It can be safely assumed that these two regions should be treated as "similar" markings despite being at least 1.5 microns apart.
+These two examples illustrate the fundamental challenge with characterizing differences - there are many ways in which two markings can be "different" from each other.
+
+<<fullScanComparisonPlot,include = FALSE,cache=TRUE>>=
+
+# debugonce(impressions::x3p_comparisonPlot)
 patchComparisonPlts_combined <-
-  impressions::x3p_comparisonPlot(x3p1 = source,x3p2 = target,
+  impressions::x3p_comparisonPlot(x3p1 = reference,x3p2 = target,
+                                  threshold = 1.5,
                                   plotLabels = c("K013sA1","K013sA2\nAligned",
-                                                 "Element-wise Average",
+                                                 "Filtered Element-wise Average",
                                                  "K013sA1\nDifferences",
                                                  "K013sA2\nAligned Differences"),
                                   labelSize = 2.5,
-                                  legendLength = grid::unit(4,"in"))
+                                  legendLength = grid::unit(6,"in"),
+                                  legendUnit = "micron",
+                                  legendQuantiles = c(0,.01,.5,.99,1))
 
 ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot_fullScan.png",
        width = 7,height = 7,bg = "white")
 knitr::plot_crop("figures/complementCompPlot_fullScan.png")
 @
 
-<<>>=
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/complementCompPlot_fullScan.png}
+\caption{The comparison plot provides an intuitive visualization of the similarities and differences between two aligned surface matrices. The left column of the comparison plot shows two aligned scans. The middle column shows the element-wise average between the two aligned scans after filtering out surface values that are at least 1.5 microns apart. The right column shows these filtered surface values of the aligned scans. Together, the middle and right column show the "similarities" and "differences" between the two aligned scans.}
+\label{fig:complementCompPlot_fullScan}
+\end{figure}
+
+<<matchCCP_combine, eval=TRUE,cache=FALSE,include=FALSE>>=
+refCell <- comparisonResults_cell %>%
+  filter(cellIndex == "3, 8") %>%
+  slice(1) %>%
+  pull(cellHeightValues) %>%
+  .[[1]]
+
+targCell <- comparisonResults_cell %>%
+  filter(cellIndex == "3, 8") %>%
+  slice(1) %>%
+  pull(alignedTargetCell) %>%
+  .[[1]]
+
+patchComparisonPlts_combined <- impressions::x3p_comparisonPlot(
+  x3p1 = refCell,x3p2 = targCell,labelSize = 3,
+  plotLabels = c("K013sA1 Cell 3, 8",
+                 "K013sA2 Aligned Cell",
+                 "Element-wise Average",
+                 "K013sA1 Cell 3, 8\nDifferences",
+                 "K013sA2 Aligned Cell\nDifferences"))
+
+ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot.png",
+       width = 7,height = 7,bg = "white")
+knitr::plot_crop("figures/complementCompPlot.png")
+@
+
+<<matchCCP_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison} The complementary comparison plot for two cells from the comparison between cell 3, 8 of scan K013sA1 and its aligned mate in scan K013sA2. The left column shows the surface values of these two cells. Note that non-overlapping pixels are shown in dark gray in the bottom left plot. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
+knitr::include_graphics("figures/complementCompPlot.png")
+@
+
+
+\subsection{Visual Diagnostic Statistics}
+
+Consider \autoref{fig:filterLabeling} that shows the filtered element-wise average $\mathcal{F}_{|A - B^*| < \tau}\left(\frac{1}{2}(A + B^*)\right)$ on the left and the associated $cond$ matrix $|A - B^*| < \tau$ visualized in black-and-white in the middle where filtered elements are shown in white.
+We use a connected components labeling algorithm detailed in \citet{haralick_shapiro} to identify individual neighborhoods of filtered elements.
+More precisely, the algorithm returns a set of sets $\pmb{S}_d = \{S_{d,1},S_{d,2},...,S_{d,L_d}\}$ where each $S_{d,l}$ is a set of indices of the $cond$ matrix that have a value of $TRUE$ and are connected by a chained-together sequence of 4 (Rook's) neighborhoods.
+The right side of \autoref{fig:filterLabeling} shows each $S_{d,l}$ distinguished by different fill colors, $l = 1,...,L_d$.
+
+<<include=FALSE>>=
 compPlt <- patchComparisonPlts_combined
 
 plt1 <- compPlt$patches$plots[[3]]
 
 plt1$layers[[3]] <- NULL
 
-scanFilterBinarized <- source %>%
+scanFilterBinarized <- reference %>%
   impressions::x3p_elemAverage(target) %>%
   impressions::x3p_to_dataFrame() %>%
-  mutate(value = (abs(c({source$surface.matrix - target$surface.matrix})) > x3p_sd(source,target)))
+  mutate(value = (abs(c({reference$surface.matrix - target$surface.matrix})) > x3p_sd(reference,target)))
 
 plt2 <- scanFilterBinarized %>%
   ggplot(aes(x=x,y=y,fill=value)) +
@@ -528,266 +742,7 @@ knitr::plot_crop("figures/binarizedBlobs.png")
 knitr::include_graphics("figures/binarizedBlobs.png")
 @
 
-
-<<matchCCP_combine, eval=TRUE,cache=FALSE,include=FALSE>>=
-refCell <- comparisonResults %>%
-  filter(cellIndex == "3, 8") %>%
-  slice(1) %>%
-  pull(cellHeightValues) %>%
-  .[[1]]
-
-targCell <- comparisonResults %>%
-  filter(cellIndex == "3, 8") %>%
-  slice(1) %>%
-  pull(alignedTargetCell) %>%
-  .[[1]]
-
-patchComparisonPlts_combined <- impressions::x3p_comparisonPlot(
-  x3p1 = refCell,x3p2 = targCell,labelSize = 3,
-  plotLabels = c("K013sA1 Cell 3, 8",
-                 "K013sA2 Aligned Cell",
-                 "Element-wise Average",
-                 "K013sA1 Cell 3, 8\nDifferences",
-                 "K013sA2 Aligned Cell\nDifferences"))
-
-ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot.png",
-       width = 7,height = 7,bg = "white")
-knitr::plot_crop("figures/complementCompPlot.png")
-@
-
-<<matchCCP_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison} The complementary comparison plot for two cells from the comparison between cell 3, 8 of scan K013sA1 and its aligned mate in scan K013sA2. The left column shows the surface values of these two cells. Note that non-overlapping pixels are shown in dark gray in the bottom left plot. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
-knitr::include_graphics("figures/complementCompPlot.png")
-@
-
-
-
-% \section{Visual Diagnostic Feature Extraction}
-%
-% \jz{List of features so far XXX}
-% \begin{itemize}
-%
-% \item \jz{Amount of overlap between the two aligned cells. XXX should this be \# of elements in their intersection over \# of elements in their union? XXX}
-%
-% \item \jz{Average value amongst the filtered element-wise averages.}
-%
-% \item \jz{XXX what's a better feature to calculate from the filtered element-wise average? XXX}
-%
-% \item \jz{Correlation between the filtered differences plot}
-%
-% \item \jz{XXX Some sort of weighted difference between the two scans. If we have a difference of 10, say, we care less if this is a difference between 15 and 25, which point in the same "direction", than -5 and 5. Think of what this weighting function might look like. XXX}
-%
-% \item \jz{XXX Broadly, we want to ensure that cells are classified as CMCs/non-CMCs *for the right reason.* Using the "aligned ants" plot, determine which areas of the scan(s) are "influential" in that they attract a large number of cells. This will help us "weigh" whether a particular cell's classification as a CMC should be trusted (e.g., if there are many cells that attract to that spot, then perhaps we should trust it less). Conversely, think about a way to determine when a cell is classified as a non-CMC, yet still is extremely similar to its aligned cell (perhaps this is what the complementary comparison plot features measure?). Not all areas of the scan(s) are of the same "importance," so figuring out what "important" means will help us explain why a cell is classified as a CMC while another isn't.XXX}
-%
-%
-% \end{itemize}
-%
-% We assume that well-aligned cells from truly matching cartridge case pairs will on average be more similar than aligned cells from non-matching cartridge case pairs.
-% Below, we summarize a set of features used to quantify this notion of similarity.
-%
-% \jz{Amount of overlap between the two aligned cells = the number of elements that are observed in both $A$ and $B$ divided by the number of elements that are observed in either $A$ or $B$ (intersection/union)}
-%
-% % Define the observed value indicator function $O(x) = I(\text{$x$ is a number})$.
-% Then define the proportion of overlapping elements as the size of the intersection of observed values divided by the size of the union of observed values between $A$ and $B$:
-% \begin{align*}
-% p_{overlap} = \frac{\sum_{i=1}^r \sum_{j=1}^c O(a_{ij}) O(b_{ij})}{\sum_{i=1}^r \sum_{j=1}^c O(a_{ij}) + O(b_{ij}) - O(a_{ij}) O(b_{ij})}.
-% \end{align*}
-% We assume that the surface values in well-aligned cells from truly matching cartridge cases will overlap more than in non-matching cells.
-%
-% \jz{Correlation between the filtered differences plot}
-%
-% For two matrices $A$ and $B$, we also consider the correlation between the filtered matrices:
-% \begin{align*}
-% c_f = Corr(\mathcal{F}_{|A-B| > \tau}(A),\mathcal{F}_{|A-B| > \tau}(B)).
-% \end{align*}
-% The correlation is calculated by vectorizing $\mathcal{F}_{|A-B| > \tau}(A)$ and $\mathcal{F}_{|A-B| > \tau}(B)$ and treating missing values by case-wise deletion.
-% We assume that the correlation between the filtered matrices will be larger if $A$ and $B$ are well-aligned matching pairs than if they are non-matching pairs.
-% Said another way, even in regions where matching cells are different from each other, we assume that the height values will follow similar trends.
-% This can occur due to variability in the amount of contact between a cartridge case and the breech face across multiple fires from the same firearm.
-%
-% We also consider features based on the elements of the absolute difference filters $\mathcal{F}_{|A-B| > \tau}(A)$ and $\mathcal{F}_{|A-B| > \tau}(B)$.
-% The left of \autoref{fig:filteredElements} shows $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}(A_{38})$.
-% In the middle of \autoref{fig:filteredElements}, we show the filtered and non-filtered elements of $\mathcal{F}_{|A_{38} - B_{38}| > 1.4}(A_{38})$ in white and black, respectively.
-%
-% <<include=FALSE>>=
-% compPlt <- impressions::x3p_comparisonPlot(
-%   x3p1 = refCell,
-%   x3p2 = targCell,
-%   plotLabels = c("Scan A","Scan B*","Filtered Element-wise\nAverage",
-%                  "Scan A\nFiltered\nDifferences","Scan B*\nFiltered\nDifferences"),
-%   labelSize = 2.5,
-%   legendLength = grid::unit(4,"in"),
-%   legendHoriz = -1.3,
-%   legendQuantiles = c(0,.01,.05,.5,.95,.99,1))
-%
-% plt1 <- compPlt$patches$plots[[3]]
-%
-% plt1$layers[[3]] <- NULL
-%
-% scanFilterBinarized <- refCell %>%
-%   impressions::x3p_elemAverage(targCell) %>%
-%   impressions::x3p_to_dataFrame() %>%
-%   mutate(value = (abs(c({refCell$surface.matrix - targCell$surface.matrix})) > x3p_sd(refCell,targCell)))
-%
-% plt2 <- scanFilterBinarized %>%
-%   ggplot(aes(x=x,y=y,fill=value)) +
-%   geom_raster() +
-%   scale_fill_manual(values = c("black","white"),na.value = "gray65") +
-%   coord_fixed(expand = FALSE) +
-%   theme_void() +
-%   theme(legend.position = "none")
-%
-%
-% scanFilterLabeled <- scanFilterBinarized %>%
-%   mutate(x = x + 1,y = y + 1,
-%          value = ifelse(!value | is.na(value),0,1)) %>%
-%   imager::as.cimg() %>%
-%   imager::label() %>%
-%   as.data.frame() %>%
-%   mutate(value = factor(value))
-%
-% plt3 <- scanFilterLabeled %>%
-%   ggplot(aes(x=x,y=y,fill=value)) +
-%   geom_raster() +
-%   coord_fixed(expand = FALSE) +
-%   theme_void() +
-%   theme(legend.position = "none") +
-%   scale_fill_manual(values = c("gray65",sample(RColorBrewer::brewer.pal(12,"Paired"),size = length(unique(scanFilterLabeled$value)) - 1,replace = TRUE)))
-%
-% labeledBlobPlts_combined <- (plt1 + plt2 + plt3) & theme(panel.border = element_rect(colour = "black",fill = NA))
-%
-% ggsave(plot = labeledBlobPlts_combined,filename = "figures/binarizedBlobs.png",bg = "white")
-% knitr::plot_crop("figures/binarizedBlobs.png")
-% @
-%
-% <<blobPlots_show,fig.cap="\\label{fig:filteredElements} From left to right: the absolute difference filtered visualization of cell 3, 8 in scan K013sA1, a visualization of the filtered elements where white pixels correspond to element-wise absolute differences larger than 1.4, and a visualization of the connected regions of filtered elements that have been labeled using a connected components labeling algorithm.", cache=FALSE>>=
-% knitr::include_graphics("figures/binarizedBlobs.png")
-% @
-%
-% Letting $M = \{(i,j) : O(f_{ij}) = 1\}$ denote the set of non-missing elements of $\mathcal{F}_{|A-B| > \tau}(A)$, consider the number of filtered elements as a proportion of the total number of non-missing values:
-% \begin{align*}
-% p_{filtered} = \frac{\sum_{(i,j) \in M} f_{ij}}{|M|}
-% \end{align*}
-% where $|M|$ is the cardinality of $M$.
-% We assume that fewer elements will be filtered from matching cell pairs than non-matching.
-%
-% \jz{XXX Average and standard deviation of blob sizes}
-%
-% We use the connected components labeling algorithm detailed in \citet{haralick_shapiro} to individually identify neighborhoods of filtered elements.
-% More precisely, the labeling algorithm provides a set of sets $\pmb{B} = \{B_1,B_2,...,B_{L}\}$ where each element $B_l$ consists of indices of $\mathcal{F}_{|A-B| \leq \tau}(A)$ that are connected by a chained-together sequence of 4 (or Rook's) neighborhoods.
-% For the black and white filtered elements shown in the middle of \autoref{fig:filteredElements}, the right plot depicts the $B_l$ neighborhoods distinguished by fill colors.
-% We consider the average and standard deviation of the neighborhood sizes as another feature:
-% \begin{align*}
-% \bar{B} &= \frac{1}{L} \sum_{l=1}^L |B_l| \\
-% \sigma_B &= \sqrt{\frac{1}{L-1} \sum_{l=1}^L (|B_l| - \bar{B})^2}
-% \end{align*}
-% where $|B_l|$ is the cardinality of $B_l$.
-% We assume that neighborhoods of filtered elements will be smaller on average and exhibit less variability for well-aligned matching cells compared to non-matching cells.
-%
-% \section{Results}
-%
-% % For two scans $A$ and $B$, we first consider applying the CMC method described above using the entire scans ($k = 1$) instead of partitioning the scans into a grid of cells.
-% % Using the cross-correlation as an optimization criterion, we obtain an estimated registration $(\hat{\theta}_{11}, \widehat{dx}_{11}, \widehat{dy}_{11})$ at which $A$ and $B$ are most similar.
-% % Note that in this case, if $(\hat{\theta}_{11}, \widehat{dx}_{11}, \widehat{dy}_{11})$ is the registration that aligns scan $B$ to $A$, then $(-\hat{\theta}_{11}, -\widehat{dx}_{11}, -\widehat{dy}_{11})$ aligns $A$ to $B$.
-% \jz{For two scans $A$ and $B$, we apply the following procedure:}
-% \begin{enumerate}
-% \item \jz{Identify the registration $(\hat{\theta},\widehat{dx}, \widehat{dy})$ that maximizes the cross-correlation between scan $A$ and $B$. Assume that $(\hat{\theta},\widehat{dx}, \widehat{dy})$ aligns scan $B$ to scan $A$ (meaning $(-\hat{\theta},-\widehat{dx},-\widehat{dy})$ align $A$ to $B$).}
-%
-% \item \jz{Apply $(\hat{\theta},\widehat{dx}, \widehat{dy})$ to scan $B$.}
-%
-% \item \jz{Partition $A$ into a grid of $4 \times 4$ cells, $\{A_{11}, A_{12},...,A_{44}\}$. Identify the matching cells $\{B_{11}, B_{12},...,B_{44}\}$ by maximizing the cross-correlation function.}
-%
-% \item \jz{Calculate the visual diagnostic features for each cell pair.}
-%
-% \item \jz{Repeat steps 1-4 using scan $B$ as the source scan.}
-% \end{enumerate}
-%
-% \autoref{fig:fivePlotComparison_fullScan} shows the complementary comparison plot comparing scan K013sA1 and K013sA2 where $(\hat{\theta}, \widehat{dx}, \widehat{dy}) = (3, -14, -11)$.
-% Notice that K013sA2 has been "cropped" after applying the estimated registration to be the same size as K013sA1.
-%
-% <<fullScanComparisonCalculation,cache=TRUE>>=
-% fullScan_comparisonData <- map_dfr(seq(-30,30,by = 3),
-%                                    function(theta){
-%
-%                                      source_processed %>%
-%                                        comparison_allTogether(target = target_processed,
-%                                                               theta = theta,
-%                                                               numCells = c(1,1),
-%                                                               maxMissingProp = .99,
-%                                                               sideLengthMultiplier = 1.1,
-%                                                               returnX3Ps = TRUE)
-%
-%                                    }) %>%
-%   filter(fft_ccf == max(fft_ccf)) %>%
-%   mutate(comparisonName = "K013sA1 vs. K013sA2")
-% @
-%
-% <<fullScanComparisonPlot,include = FALSE,cache=TRUE>>=
-% source <- fullScan_comparisonData %>%
-%   pull(cellHeightValues) %>%
-%   .[[1]]
-%
-% target <- fullScan_comparisonData %>%
-%   pull(alignedTargetCell) %>%
-%   .[[1]]
-%
-% patchComparisonPlts_combined <-
-%   impressions::x3p_comparisonPlot(x3p1 = source,x3p2 = target,
-%                                   plotLabels = c("K013sA1","K013sA2\nAligned",
-%                                                  "Element-wise Average",
-%                                                  "K013sA1\nDifferences",
-%                                                  "K013sA2\nAligned Differences"))
-%
-% ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot_fullScan.png",
-%        width = 7,height = 7,bg = "white")
-% knitr::plot_crop("figures/complementCompPlot_fullScan.png")
-% @
-%
-% <<matchCCP_fullScan_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison_fullScan} The complementary comparison plot for comparing scan K013sA1 and the aligned scan K013sA2. The left column shows the surface values of the two scans. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
-% knitr::include_graphics("figures/complementCompPlot_fullScan.png")
-% @
-%
-% <<visualDiagnosticResultsPlot,include=FALSE>>=
-% load("data/visualDiagnosticFeatures_fullScans.RData")
-%
-% resultsPlt <- visualDiagnosticFeatures_fullScans %>%
-%   filter(sdMultiplier == 1) %>%
-%   select(type,8:15) %>%
-%   mutate(x = log10(abs(x)),
-%          y = log10(abs(y)),
-%          theta = abs(theta),
-%          blobSize_ave_nonStandardized = log10(blobSize_ave_nonStandardized),
-%          blobSize_sd_nonStandardized = log10(blobSize_sd_nonStandardized)) %>%
-%   pivot_longer(cols = 2:9) %>%
-%   mutate(name = str_remove(name,"_nonStandardized")) %>%
-%   mutate(name = factor(name,
-%                        levels = c("blobSize_ave","blobSize_sd","differenceCor","theta","x","y","fft_ccf","pairwiseCompCor"),
-%                        labels = c("Average Neighborhood Size\nLog10 scale",
-%                                   "Neighborhood Size S.D.\nLog10 scale",
-%                                   "Filtered Difference Cor.",
-%                                   "Estimated Rotation",
-%                                   "Absolute Horiz. Translation\nLog10 scale",
-%                                   "Absolute Vert. Translation\nLog10 scale",
-%                                   "FFT-based CCF",
-%                                   "Pairwise-complete Cor."))) %>%
-%   ggplot(aes(x = name,y = value,fill = type)) +
-%   geom_boxplot() +
-%   facet_wrap(~ name,scales = "free") +
-%   labs(fill = "Comparison Type") +
-%   theme_bw() +
-%   theme(legend.position = "bottom",
-%         axis.title = element_blank(),
-%         axis.text.x = element_blank(),
-%         axis.ticks.x = element_blank()) +
-%   guides(fill = guide_legend(nrow = 1))
-%
-% ggsave(plot = resultsPlt,filename = "figures/resultsPlt.png")
-% knitr::plot_crop("figures/resultsPlt.png")
-% @
-%
-% <<visualDiagnosticResultsPlot_show,out.width=".9\\textwidth",fig.cap="\\label{fig:visualDiagnosticsPlot} Distribution of features.", cache=FALSE>>==
-% knitr::include_graphics("figures/resultsPlt.png")
-% @
-%
+\subsection{The cartridgeInvestigatR Application}
 
 
 \section{Discussion}
@@ -826,262 +781,6 @@ knitr::include_graphics("figures/complementCompPlot.png")
 \hh{Include one (or more) example(s) of a five-plot ensemble for a non-match so that we can see the qualitative difference. }
 
 
-% <<nonMatchCCP_create,eval=TRUE,cache=FALSE,include=FALSE>>=
-% sourceCell_nonMatch <- comparisonResults %>%
-%   filter(comparisonName != "K013sA1 vs. K013sA2") %>%
-%   filter(cellIndex == "5, 1") %>%
-%   filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
-%   pull(cellHeightValues) %>%
-%   .[[1]]
-%
-% targetCell_nonMatch <- comparisonResults %>%
-%   filter(comparisonName != "K013sA1 vs. K013sA2") %>%
-%   filter(cellIndex == "5, 1") %>%
-%   filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
-%   pull(alignedTargetCell) %>%
-%   .[[1]]
-%
-% # sourceCell_nonMatch$surface.matrix <- (sourceCell_nonMatch$surface.matrix*sourceCell_nonMatch$cmcR.info$scaleByVal + sourceCell_nonMatch$cmcR.info$centerByVal)*1e6
-% # targetCell_nonMatch$surface.matrix <- (targetCell_nonMatch$surface.matrix*targetCell_nonMatch$cmcR.info$scaleByVal + targetCell_nonMatch$cmcR.info$centerByVal)*1e6
-%
-% nonMatchCellPairThresh <- sd(c(c(sourceCell_nonMatch$surface.matrix),c(targetCell_nonMatch$surface.matrix)),na.rm = TRUE)
-%
-% patchComparisonPlts <- impressions::x3p_comparisonPlot(x3p1 = sourceCell_nonMatch,
-%                                                       x3p2 = targetCell_nonMatch,
-%                                                       plotLabels = c("K013sA1 Cell 5, 1","K002eG1 Aligned Cell\nat 3°",
-%                                                                     "Filtered Element-wise Average",
-%                                                                     "K013sA1 Cell 5, 1\nFiltered Differences","K002eG1 Aligned Cell\nFiltered Differences"),1)
-%
-% patchComparisonLegend_nonMatch <- cowplot::plot_grid(patchComparisonPlts$legend$grobs[[1]])
-% @
-%
-% <<nonMatchCCP_blobs,eval=TRUE,cache=FALSE,include=FALSE>>=
-% combinedValues <- comparisonResults %>%
-%   filter(comparisonName != "K013sA1 vs. K013sA2") %>%
-%   filter(cellIndex == "5, 1") %>%
-%   filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
-%   pull(cellHeightValues) %>%
-%   .[[1]] %>%
-%   impressions::x3p_to_dataFrame() %>%
-%   rename(refValue = value) %>%
-%   left_join(comparisonResults %>%
-%               filter(comparisonName != "K013sA1 vs. K013sA2") %>%
-%               filter(cellIndex == "5, 1") %>%
-%               filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
-%               pull(alignedTargetCell) %>%
-%               .[[1]] %>%
-%               impressions::x3p_to_dataFrame() %>%
-%               rename(targValue = value),
-%             by = c("x","y"))
-%
-% blobBoundaries <- comparisonResults %>%
-%   filter(comparisonName != "K013sA1 vs. K013sA2") %>%
-%   filter(cellIndex == "5, 1") %>%
-%   filter(pairwiseCompCor == max(pairwiseCompCor)) %>%
-%   dplyr::select(comparisonName,cellIndex,cellHeightValues,alignedTargetCell) %>%
-%   pmap(~ {
-%
-%     source <- ..3
-%
-%     target <- ..4
-%
-%     source$surface.matrix <- (source$surface.matrix*source$cmcR.info$scaleByVal + source$cmcR.info$centerByVal)*1e6
-%     target$surface.matrix <- (target$surface.matrix*target$cmcR.info$scaleByVal + target$cmcR.info$centerByVal)*1e6
-%
-%     averageBinarized <- bind_rows(source %>%
-%                                     x3p_to_dataFrame() %>%
-%                                     mutate(value = value),
-%                                   target %>%
-%                                     x3p_to_dataFrame() %>%
-%                                     mutate(value = value)) %>%
-%       group_by(x,y) %>%
-%       summarise(difference = diff(value),
-%                 absDifference = abs(diff(value)),
-%                 average = mean(value),
-%                 .groups = "drop")  %>%
-%       mutate(comparisonName = ..1,
-%              cellIndex = ..2)%>%
-%       mutate(value = ifelse(absDifference > sd(c(c(sourceCell_nonMatch$surface.matrix),c(targetCell_nonMatch$surface.matrix)),na.rm=TRUE),TRUE,FALSE))
-%
-%     suppressWarnings({
-%
-%       averageMat <- averageBinarized %>%
-%         mutate(x = x+1,
-%                y=y+1) %>%
-%         dplyr::select(x,y,value) %>%
-%         imager::as.cimg() %>%
-%         as.matrix()
-%
-%     })
-%
-%     averageMat[is.na(averageMat)] <- 0
-%
-%     # we pad the matrix so that the contours one the edge blobs are properly
-%     # identified. the padding is removed in the last lines of the creation of
-%     # the outline object below
-%     averageMat  <- averageMat %>%
-%       imager::as.cimg() %>%
-%       imager::pad(nPix = 10,axes = "xy",val = 0)
-%
-%     labels <- imager::label(averageMat)
-%
-%     bounds <- map(unique(labels[labels > 0]),
-%                   function(lab){
-%
-%                     imager::boundary(labels == lab)
-%
-%                   })
-%
-%     return(list(bounds,labels))
-%
-%   })
-%
-% # combine all labeled blobs into one image
-% boundaryPx <- blobBoundaries[[1]][[1]] %>%
-%   imager::as.imlist() %>%
-%   imager::add()
-%
-% # the mask used to dilate the blobs will grow them towards the bottom-right of
-% # the matrix
-% dilatedPx <- imager::dilate_rect(boundaryPx,sx = 2,sy = 2)
-% dilatedPx_labels <- imager::dilate_rect(blobBoundaries[[1]][[2]],sx = 2,sy = 2)
-%
-% # flip the image and re-apply the dilation to grow the borders to the other
-% # corners. flip back after dilation
-% dilatedPx_mirrorx <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="x"),sx = 2,sy = 2),axis="x")
-% dilatedPx_mirrorx_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="x"),sx = 2,sy = 2),axis="x")
-%
-% dilatedPx_mirrory <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="y"),sx = 2,sy = 2),"y")
-% dilatedPx_mirrory_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="y"),sx = 2,sy = 2),"y")
-%
-% dilatedPx_mirrorxy <- imager::mirror(imager::dilate_rect(imager::mirror(boundaryPx,axis="xy"),sx = 3,sy = 3),"xy")
-% dilatedPx_mirrorxy_labels <- imager::mirror(imager::dilate_rect(imager::mirror(blobBoundaries[[1]][[2]],axis="xy"),sx = 3,sy = 3),"xy")
-%
-% # combine all of the dilated images together into one image
-% dilatedPx_comb <- dilatedPx + dilatedPx_mirrorx + dilatedPx_mirrory + dilatedPx_mirrorxy
-%
-% # we just want a binary labeling
-% dilatedPx_comb[dilatedPx_comb > 0] <- 1
-%
-% # the dilated boundaries will have also grown into the blobs, so we take those
-% # pixels out
-% dilatedPx_comb[blobBoundaries[[1]][[2]] > 0] <- 0
-%
-% # from: https://stackoverflow.com/questions/34756755/plot-outline-around-raster-cells
-% outline <- dilatedPx_comb %>%
-%   as.data.frame() %>%
-%   filter(value > 0) %>%
-%   mutate(x = x-1,
-%          y = y-1) %>%
-%   raster::rasterFromXYZ() %>%
-%   raster::rasterToPolygons(dissolve = TRUE) %>%
-%   fortify() %>%
-%   #the boundaries around the filtered blobs all share a common value in the
-%   #"hole" column of TRUE
-%   filter(hole) %>%
-%   # remove padding used previously
-%   mutate(lat = lat-5,
-%          long = long-5)
-% @
-%
-% <<nonMatchCCP_explore,eval=FALSE>>=
-% patchComparisonPlts[[3]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = "Filtered Element-wise Average\nAbs. Differences at Most 1") +
-%   theme(plot.margin = margin(0,25,0,25),
-%         plot.subtitle = element_text(hjust = .5,size = 8,vjust = -5)) -
-%   geom_raster(fill = "gray80") +
-%   geom_path(data = outline,
-%             color = "grey40",
-%             aes(x=long,y=lat,group=group,colour=group),
-%             inherit.aes = FALSE,
-%             size = .5) +
-%   guides(fill = "none") +
-%   theme(legend.position = "bottom")
-% @
-%
-%
-% <<nonMatchCCP_combine,eval=TRUE,cache=TRUE,include=FALSE>>=
-% `-.gg` <- function(plot, layer) {
-%   if (missing(layer)) {
-%     stop("Cannot use `-.gg()` with a single argument. Did you accidentally put - on a new line?")
-%   }
-%   if (!is.ggplot(plot)) {
-%     stop('Need a plot on the left side')
-%   }
-%   plot$layers = c(layer, plot$layers)
-%   plot
-% }
-%
-% topLeft <- patchComparisonPlts[[1]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = "K013sA1 Cell 5, 1") +
-%   theme(plot.margin = margin(0,0,5,0),
-%         plot.subtitle = element_text(hjust = .5,size = 8,vjust = -1)) +
-%   geom_raster(data = combinedValues %>%
-%                 filter(is.na(refValue) & !is.na(targValue)),
-%               fill = "gray40")
-%
-% bottomLeft <-patchComparisonPlts[[2]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = "K002eG1 Aligned Cell\nat 3°") +
-%   theme(plot.margin = margin(-20,-100,30,-100),
-%         plot.subtitle = element_text(hjust = .5,vjust = -78,size = 8)) +
-%   geom_raster(data = combinedValues %>%
-%                 filter(!is.na(refValue) & is.na(targValue)),
-%               fill = "gray40")
-%
-% middle <- patchComparisonPlts[[3]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = paste0("Filtered Element-wise Average\nAbs. Differences at Most ",round(nonMatchCellPairThresh,2))) +
-%   theme(plot.margin = margin(0,25,0,25),
-%         plot.subtitle = element_text(hjust = .5,size = 8,vjust = -5)) -
-%   geom_raster(fill = "gray80") +
-%   geom_path(data = outline %>%
-%               filter(!(group %in% c("1.22","1.23"))),
-%             aes(x=long,y=lat,group=group), color = "grey40",
-%             inherit.aes = FALSE,
-%             size = .5)
-%
-% topRight <- patchComparisonPlts[[4]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = paste0("Filtered K013sA1 Cell 5, 1\nAbs. Differences Greater Than ",round(nonMatchCellPairThresh,2))) +
-%   theme(plot.margin = margin(0,0,5,0),
-%         plot.subtitle = element_text(hjust = .5,size = 8)) -
-%   geom_raster(fill = "gray80") +
-%   geom_path(data = outline %>%
-%               filter(!(group %in% c("1.22","1.23"))), color = "grey40",
-%             aes(x=long,y=lat,group=group),
-%             inherit.aes = FALSE,
-%             size = .25)
-%
-% bottomRight <- patchComparisonPlts[[5]] +
-%   cowplot::theme_nothing() +
-%   labs(subtitle = paste0("Filtered K002eG1 Aligned Cell\nAbs. Differences Greater Than ",round(nonMatchCellPairThresh,2))) +
-%   theme(plot.margin = margin(-20,-100,30,-100),
-%         plot.subtitle = element_text(hjust = .5,vjust = -78,size = 8)) -
-%   geom_raster(fill = "gray80") +
-%   geom_path(data = outline %>%
-%               filter(!(group %in% c("1.22","1.23"))), color = "grey40",
-%             aes(x=long,y=lat,group=group),
-%             inherit.aes = FALSE,
-%             size = .25)
-%
-% design <- "ACCD
-%            BCCE"
-%
-% patchComparisonPlts_nonMatch_combined <- patchwork::wrap_plots(topLeft,bottomLeft,middle,topRight,bottomRight,design = design) +
-%   inset_element(patchComparisonLegend_nonMatch,left = -2.15,bottom = 0,right = -2.15,top = 0,on_top = FALSE,align_to = 'full')
-%
-% ggsave(plot = patchComparisonPlts_nonMatch_combined,
-%        filename = "figures/complementCompPlot_nonMatch.png",
-%        width = 7,height = 7,bg = "white")
-% knitr::plot_crop("figures/complementCompPlot_nonMatch.png")
-% @
-%
-% <<nonMatchCCP_show,out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison_nonMatch} The complementary comparison plot for two cells from the comparison between cell 5, 1 of scan K013sA1 and its aligned cell in the non-match scan K002eG1. Compared to the aligned cells in the matching comparison shown in \\autoref{fig:fivePlotComparison}, we see that there are more dissimilarities between these two aligned cells. A black border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
-% knitr::include_graphics("figures/complementCompPlot_nonMatch.png")
-% @
 
 \end{appendix}
 
