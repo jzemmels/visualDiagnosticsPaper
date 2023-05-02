@@ -318,16 +318,22 @@ Calculate rotation $\theta^* = \arg \max_{\theta} \{CCF_{\max,\theta} : \theta \
 \label{alg:registration}
 \end{algorithm}
 
+We can apply \autoref{alg:registration} in both directions to align not only scan $B$ to $A$, but also $A$ to $B$.
+Theoretically, these two registrations should be exact opposites of each other.
+However, depending on the scans this may not happen in practice because we use "nearest-neighbor" interpolation to rotate the discretely-indexed surface matrices.
+To accommodate these two comparison directions, we now introduce a subscript $d = A,B$ that refers to the source scan used in \autoref{alg:registration}.
+For example, $(m_A^*, n_A^*, \theta_A^*, CCF_{\max,A})$ refers to the estimated registration and CCF from aligning scan $B$ to $A$.
+
 \citet{song_proposed_2013} points out that two matching cartridge cases may only have a handful of regions with distinguishable, matching impressions due to inherent variability in the firing process.
 Calculating a correlation between two full scans as in \autoref{alg:registration} may not highlight their similarities.
 Instead, \citet{song_proposed_2013} proposes partitioning one of the scans into a grid of "cells" and estimating the registration between each cell and the other scan.
 
 We now extend the surface matrix notation introduced previously to accommodate cells.
-Let $A_{t}$ denote the $t$th cell of matrix $A$, $t = 1,...,T_A$ where $T_A$ is the total number of cells containing non-missing values (e.g., $T_A = 43$ in \autoref{fig:cellGridExample}) in scan $A$ and let $(a_t)_{ij}$ denote the $i,j$-th element of $A_t$.
+Let $A_{t}$ denote the $t$th cell of matrix $A$, $t = 1,...,T_A$ where $T_A$ is the total number of cells containing non-missing values in scan $A$ and let $(a_t)_{ij}$ denote the $i,j$-th element of $A_t$.
 This procedure can be viewed as a generalization of \autoref{alg:registration} that we call the "cell-based comparison procedure" and outline in \autoref{alg:cellComparison}.
 
 \begin{algorithm}[H]
-\KwData{Reference matrix $A$, target matrix $B^*$, cell grid size $R \times C$, and rotation grid $\pmb{\Theta}'_A$}
+\KwData{Source matrix $A$, target matrix $B^*$, cell grid size $R \times C$, and rotation grid $\pmb{\Theta}'_A$}
 \KwResult{Estimated translations and $CCF_{\max}$ values per cell, per rotation}
 Partition $A$ into a grid of $R \times C$ cells\;
 Discard cells containing only missing values, leaving $T_A$ remaining cells\;
@@ -343,7 +349,21 @@ Calculate translation $[m^*_{A,t,\theta},n^*_{A,t,\theta}] = \arg \max_{m,n} (a_
 \label{alg:cellComparison}
 \end{algorithm}
 
-\jz{[Describe what we expect to see in $\pmb{F}_A$. E.g., agreement in registrations for matching scans.]}
+The output of \autoref{alg:cellComparison} is a set of estimated registrations - one registration for each cell in the source scan for each $\theta$.
+For a particular cell $t \in \{1,...,T_A\}$, we select the registration that maximizes the CCF across all $\theta \in \pmb{\Theta}_A'$ as its estimated registration.
+
+Similar to \autoref{alg:registration}, we can use \autoref{alg:cellComparison} to align not only cells from $A$ to $B^*$, but also cells from $B$ to $A^*$, which is an aligned version of scan $A$ from \autoref{alg:registration} using $B$ as source.
+We again use a direction subscript $d = A,B$ to refer to the source scan in \autoref{alg:cellComparison}.
+For example, the outcome of \autoref{alg:cellComparison} using $B$ as source and $A^*$ as target is the set $\pmb{F}_B$ of estimated registrations per cell, $t = 1,...,T_B$, per rotation, $\theta \in \pmb{\Theta}_B'$.
+
+One challenge with using registration algorithms like \autoref{alg:registration} and \autoref{alg:cellComparison} is understanding when and how they "work" as expected.
+For example, we expect for truly matching cartridge cases that these estimated registrations should "agree" across various cells.
+In other words, that $(m^*_{A,t,\theta},n^*_{A,t,\theta}, \theta)$ should be the same for all $t = 1,...T_A$.
+We don't assume such agreement will occur for truly non-matching cartridge cases.
+Rarely do \textit{all} cells agree with the same registration in practice, even for truly matching cartridge cases.
+Instead, depending on the quality of the impressions on two matching cartridge cases, there may be a handful of cells that have similar $(m^*_{A,t,\theta},n^*_{A,t,\theta}, \theta)$ values.
+A natural question is: why do some scans/cells find the correct registration while others do not?
+In the next section, we introduce a set of diagnostic tools we developed to answer such questions.
 
 \section{Visual Diagnostics}
 
@@ -420,16 +440,16 @@ scan2_preProc_aligned$surface.matrix <-
   barrelB_preProcComparison$alignedTargetCell[[1]]$surface.matrix*barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$scaleByVal + barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$centerByVal
 
 plt1 <- impressions::x3pPlot(scan1_original_aligned,scan2_original_aligned,
-                x3pNames = c("K002eG2 Original","K227iG3 Original"),
-                legend.quantiles = c(0,.01,.5,.99,1),
-                legendLength = 10) +
+                             x3pNames = c("K002eG2 Original","K227iG3 Original"),
+                             legend.quantiles = c(0,.01,.5,.99,1),
+                             legendLength = 10) +
   labs(caption = paste0("CCF: ",round(barrelB_originalComparison$fft_ccf,2))) +
   theme(plot.caption = element_text(hjust = .5))
 
 plt2 <- impressions::x3pPlot(scan1_preProc_aligned,scan2_preProc_aligned,
-                x3pNames = c("K002eG2 + Additional Pre-processing","K227iG3 + Additional Pre-processing"),
-                legend.quantiles = c(0,.01,.5,.99,1),
-                legendLength = 10) +
+                             x3pNames = c("K002eG2 + Additional Pre-processing","K227iG3 + Additional Pre-processing"),
+                             legend.quantiles = c(0,.01,.5,.99,1),
+                             legendLength = 10) +
   labs(caption = paste0("CCF: ",round(barrelB_preProcComparison$fft_ccf,2))) +
   theme(plot.caption = element_text(hjust = .5))
 
@@ -439,7 +459,7 @@ ggsave(plot = {patchwork::wrap_plots(plt1,plt2,ncol = 1)},filename = "figures/pr
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=\textwidth]{figures/preProcessEffectExample.png}
+\includegraphics[width=.8\textwidth]{figures/preProcessEffectExample.png}
 \caption{Registration results from comparing two versions of a matching pair of cartridge case scans. In the first comparison (top), extraneous values are left in the scan which causes the overall $CCF_{\max}$ value to be relatively low (0.14). When these values are removed (bottom), the CCF value more than doubles to 0.29. The X3P plot is useful for identifying scans that are in need of additional pre-processing.}
 \label{fig:preProcessEffectExample}
 \end{figure}
@@ -448,8 +468,9 @@ ggsave(plot = {patchwork::wrap_plots(plt1,plt2,ncol = 1)},filename = "figures/pr
 
 The "comparison plot" is a visual diagnostic tool that uses the X3P plot to directly compare the surface values of two scans.
 The comparison plot provides a quick, intuitive assessment by partitioning the surfaces into similarities and differences.
-To construct the comparison plot we first obtain two aligned scans $A$ and $B*$ using \autoref{alg:registration}.
+To construct the comparison plot we first obtain two aligned scans $A$ and $B^*$ using \autoref{alg:registration}.
 A comparison plot like the one shown in \autoref{fig:complementCompPlot_fullScan} depicts aligned versions of the two scans $A$ = K013sA1 and $B$ = K013sA2 shown in \autoref{fig:processedSideBySide}.
+The first columns shows the scan $A$ and aligned scan $B^*$ in the top left and right, respectively.
 The dark gray (gray40) elements in these two visualizations represent the non-overlapping elements from the other scan.
 Next, we wish to partition these $A$ and $B^*$ into similarities and differences using a filter operation.
 
@@ -468,11 +489,12 @@ The resulting $\mathcal{F}_{cond}(X)$ is a copy of the matrix $X$ where elements
 The filtering operation allows us to isolate elements of a surface matrix that satisfy some criterion.
 For example, we can isolate a surface matrix to only those elements that are close to the elements of another surface matrix.
 
-We compute the element-wise average $\frac{1}{2}(A + B^*)$ and absolute difference $|A - B^*|$ as shown in the left and middle of \autoref{fig:averageFilterExample}.
-We also construct Boolean-valued matrices $|A - B^*| \leq \tau$ and $|A - B^*| > \tau$ based on whether the element-wise absolute difference is at most or greater than a threshold $\tau > 0$.
-For example, the right side of \autoref{fig:averageFilterExample} shows the elements of matrix $|A - B^*| > 1.5$ with $TRUE$ elements represented as white pixels and $FALSE$ elements as black pixels.
-% We note that there are many more $FALSE$ elements, where the surfaces of $A$ and $B^*$ are "close," than $TRUE$ elements.
-
+\autoref{fig:averageFilterExample} shows the construction of a filtered element-wise average between $A$ and $B^*$.
+We compute the element-wise average $\frac{1}{2}(A + B^*)$ and absolute difference $|A - B^*|$ as shown in the left and right of \autoref{fig:averageFilterExample}.
+We then consider values of $|A - B^*|$ that are greater than some threshold $\tau > 0$.
+We construct Boolean-valued matrices $|A - B^*| \leq \tau$ and $|A - B^*| > \tau$ based on whether the element-wise absolute difference is at most or greater than $\tau$.
+For example, the right side of \autoref{fig:averageFilterExample} shows the elements of matrix $|A - B^*| \leq 1$ with $TRUE$ elements represented as white pixels and $FALSE$ elements as black pixels.
+We then filter $\frac{1}{2}(A + B^*)$ using $|A - B^*| \leq \tau$ as the $cond$ matrix, resulting in tge filtered element-wise average $\mathcal{F}_{|A - B^*| \leq \tau}\left(\frac{1}{2}(A + B^*)\right)$, an example of which is shown at in the bottom of \autoref{fig:averageFilterExample} using $\tau = 1$.
 
 <<include=FALSE>>=
 reference <- comparisonResults_fullScan %>%
@@ -559,7 +581,7 @@ ggsave(surfaceDistance_plt,filename = "figures/surfaceDistance.png",bg="white")
 
 surfaceDistance_bin <- surfaceDistance
 
-surfaceDistance_bin$surface.matrix <- {surfaceDistance_bin$surface.matrix > 1.5}
+surfaceDistance_bin$surface.matrix <- {surfaceDistance_bin$surface.matrix > 1}
 
 surfaceDistance_bin_plt <- surfaceDistance_bin %>%
   impressions::x3p_to_dataFrame() %>%
@@ -568,7 +590,7 @@ surfaceDistance_bin_plt <- surfaceDistance_bin %>%
   coord_fixed(expand=FALSE) +
   theme_void() +
   theme(legend.position = "none") +
-  scale_fill_manual(values = c("black","white"),na.value = "gray65")
+  scale_fill_manual(values = c("white","black"),na.value = "gray65")
 
 ggsave(surfaceDistance_bin_plt,filename = "figures/surfaceDistance_bin.png")
 
@@ -583,7 +605,7 @@ plt <- ((elementwiseAverage_plt +
              theme(strip.text = element_blank(),
                    plot.title = element_text(hjust=.55,vjust=-45,size = 8))) +
           (surfaceDistance_bin_plt +
-             labs(title = "Abs. Difference > 1.5") +
+             labs(title = "Abs. Difference > 1") +
              theme(strip.text = element_blank(),
                    plot.title = element_text(hjust=.65,vjust=-40,size = 8)))) +
   patchwork::plot_annotation(title = "K013sA1 vs. Aligned K013sA2",
@@ -592,50 +614,41 @@ plt <- ((elementwiseAverage_plt +
 ggsave(plt,filename = "figures/averageFilterExample.png",bg = "white")
 knitr::plot_crop("figures/averageFilterExample.png")
 
-patchComparisonPlts_list <-
-  impressions::x3p_comparisonPlot(x3p1 = reference,x3p2 = target,
-                                  plotLabels = c(" ","  ","   ","    ","     "),
-                                  legendLength = grid::unit(4,"in"),
-                                  type = "list")
-
-ggsave(patchComparisonPlts_list$`   `,filename = "figures/elementwiseAverage_filtered.png")
+# patchComparisonPlts_list <-
+#   impressions::x3p_comparisonPlot(x3p1 = reference,x3p2 = target,threshold = 1,
+#                                   plotLabels = c(" ","  ","   ","    ","     "),
+#                                   legendLength = grid::unit(4,"in"),
+#                                   type = "list")
+#
+# ggsave(patchComparisonPlts_list$`   `,filename = "figures/elementwiseAverage_filtered.png")
 @
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=\textwidth]{figures/averageFilterExample.png}
-\caption{To construct the comparison plot after aligning the scans K013sA1 and K013sA2 shown in \autoref{fig:processedSideBySide}, we compute their element-wise average (left) and element-wise absolute difference (middle). We then compute a Boolean-valued matrix based on whether the elements of the element-wise absolute difference is greater or less than 1.5 microns (right). We use this Boolean matrix to distinguish between similarities and differences in the scan impressions.}
+\includegraphics[width=.6\textwidth]{images/filteringIllustration.png}
+\caption{To construct the comparison plot after aligning the scans K013sA1 and K013sA2 shown in \autoref{fig:processedSideBySide}, we compute their element-wise average (left) and element-wise absolute difference (right). We then compute a Boolean-valued matrix based on whether the elements of the element-wise absolute difference is greater or less than 1 micron (right). We use this Boolean matrix to distinguish between similarities and differences in the scan impressions.}
 \label{fig:averageFilterExample}
 \end{figure}
-
-
-The middle column of the comparison plot shows the filtered element-wise matrix $\mathcal{F}_{|A - B^*| \leq \tau}\left(\frac{1}{2}(A + B^*)\right)$.
-By isolating the element-wise average to "close" surface values between $A$ and $B^*$, the filtered element-wise average emphasizes similar markings between the two scans.
-In \autoref{fig:complementCompPlot_fullScan}, we use a filtering threshold of $\tau = 1.5$ microns and represent filtered elements in light gray (gray80).
-This filtered element-wise average illustrates that there are many similarities between the two surfaces.
-To identify similarities using the element-wise average, we have found it most effective to scan the filtered element-wise average plot for distinctive markings, such as the deep purple and orange markings in the 5 o'clock position of the firing pin hole in \autoref{fig:complementCompPlot_fullScan}.
-After identifying distinctive markings, it is relatively easy to identify the contributing markings from $A$ and $B^*$ by considering the same region in the two plots in the left column.
-For example, we see deep purple and orange striped impressions in the 5 o'clock positions of $A$ and $B^*$ in \autoref{fig:complementCompPlot_fullScan}.
-Cross-referencing the filtered element-wise average with the individual scans allows us to assess the degree of similarity and spatial relationship between markings on the two scans.
 
 Complementary to the filtered element-wise average, the right column of the comparison plot shows differences between the two scans.
 While it is visually obvious when scans share similar markings, characterizing different markings can be challenging.
 For example, two markings may be different in their depth, shape, orientation, or spatial relationship to other markings.
 As such, we visualize two filtered versions of the aligned scans $\mathcal{F}_{|A - B^*| > \tau}(A)$ and $\mathcal{F}_{|A - B^*| > \tau}(B^*)$ to emphasize differences.
-The right column of \autoref{fig:complementCompPlot_fullScan} shows the filtered differences between scans $A$ and $B^*$ using a cutoff threshold of $\tau = 1.5$ microns.
-Again, we've found it useful to study the two filtered plots to identify differences that can be cross-referenced against the original scans.
-For example, scan $B^*$ has a dent-like marking at the 11 o'clock position of the firing pin hole that is not present in $A$.
-On the other hand, we note a dark orange region in the 5 o'clock position, where we had previously noted similarities, that is treated as a difference.
-Considering the original scans in the left column, we see that these orange regions are indeed part of the striped purple and orange impression region.
-It can be safely assumed that these two regions should be treated as "similar" markings despite being at least 1.5 microns apart.
-These two examples illustrate the fundamental challenge with characterizing differences - there are many ways in which two markings can be "different" from each other.
+\autoref{fig:differenceFilterExample} shows an example of the results of this filtering using $\tau = 1$.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=.55\textwidth]{images/filteringDifferencesIllustration.png}
+\caption{To construct the comparison plot, we filter two scans $K013sA1$ and $K013sA2$ based on regions where their element-wise absolute difference exceeds 1 micron, which are represented as white pixels in the black and white image. This emphasizes regions where the two surfaces differ, which complements the similarities that are emphasized in the element-wise average shown in \autoref{fig:averageFilterExample}.}
+\label{fig:differenceFilterExample}
+\end{figure}
 
 <<fullScanComparisonPlot,include = FALSE,cache=TRUE>>=
 
 # debugonce(impressions::x3p_comparisonPlot)
 patchComparisonPlts_combined <-
   impressions::x3p_comparisonPlot(x3p1 = reference,x3p2 = target,
-                                  threshold = 1.5,
+                                  threshold = 1,
                                   plotLabels = c("K013sA1","K013sA2\nAligned",
                                                  "Filtered Element-wise Average",
                                                  "K013sA1\nDifferences",
@@ -650,19 +663,54 @@ ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlo
 knitr::plot_crop("figures/complementCompPlot_fullScan.png")
 @
 
+The comparison plot visualizes the surface values of the original scans $A$ and $B^*$, the filtered element-wise average $\mathcal{F}_{|A - B^*| \leq \tau}\left(\frac{1}{2}(A + B^*)\right)$, and filtered element-wise differences $\mathcal{F}_{|A - B^*| > \tau}(A)$ and $\mathcal{F}_{|A - B^*| > \tau}(B^*)$.
+\autoref{fig:complementCompPlot_fullScan} shows an example of a comparison plot using $A=$ K013sA1 and $B=$ K013sA2.
+
+The middle column of the comparison plot shows the filtered element-wise matrix $\mathcal{F}_{|A - B^*| \leq \tau}\left(\frac{1}{2}(A + B^*)\right)$.
+By isolating the element-wise average to "close" surface values between $A$ and $B^*$, the filtered element-wise average emphasizes similar markings between the two scans.
+In \autoref{fig:complementCompPlot_fullScan}, we use a filtering threshold of $\tau = 1$ microns and represent filtered elements in light gray (gray80).
+This filtered element-wise average illustrates that there are many similarities between the two surfaces.
+To identify similarities using the element-wise average, we have found it most effective to scan the filtered element-wise average plot for distinctive markings, such as the deep purple and orange markings in the 5 o'clock position of the firing pin hole in \autoref{fig:complementCompPlot_fullScan}.
+After identifying distinctive markings, it is relatively easy to identify the contributing markings from $A$ and $B^*$ by considering the same region in the two plots in the left column.
+For example, we see deep purple and orange striped impressions in the 5 o'clock positions of $A$ and $B^*$ in \autoref{fig:complementCompPlot_fullScan}.
+Cross-referencing the filtered element-wise average with the individual scans allows us to assess the degree of similarity and spatial relationship between markings on the two scans.
+
+The right column of \autoref{fig:complementCompPlot_fullScan} shows the filtered differences between scans $A$ and $B^*$ using a cutoff threshold of $\tau = 1$ microns.
+Again, we've found it useful to study the two filtered plots to identify differences that can be cross-referenced against the original scans.
+For example, scan $B^*$ has a dent-like marking at the 11 o'clock position of the firing pin hole that is not present in $A$.
+On the other hand, we note a dark orange region in the 5 o'clock position, where we had previously noted similarities, that is treated as a difference.
+Considering the original scans in the left column, we see that these orange regions are indeed part of the striped purple and orange impression region.
+It can be safely assumed that these two regions should be treated as "similar" markings despite being at least 1 micron apart.
+These two examples illustrate the fundamental challenge with characterizing differences - there are many ways in which two markings can be "different" from one another.
+
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=\textwidth]{figures/complementCompPlot_fullScan.png}
-\caption{The comparison plot provides an intuitive visualization of the similarities and differences between two aligned surface matrices. The left column of the comparison plot shows two aligned scans. The middle column shows the element-wise average between the two aligned scans after filtering out surface values that are at least 1.5 microns apart. The right column shows these filtered surface values of the aligned scans. Together, the middle and right column show the "similarities" and "differences" between the two aligned scans.}
+\caption{The comparison plot provides an intuitive visualization of the similarities and differences between two aligned surface matrices. The left column of the comparison plot shows two aligned scans. The middle column shows the element-wise average between the two aligned scans after filtering out surface values that are at least 1 micron apart. The right column shows these filtered surface values of the aligned scans. Together, the middle and right column show the "similarities" and "differences" between the two aligned scans.}
 \label{fig:complementCompPlot_fullScan}
 \end{figure}
 
-<<matchCCP_combine, eval=TRUE,cache=FALSE,include=FALSE>>=
+By construction, the X3P and comparison plots emphasize the most extreme values in the two surface matrices.
+This means that similar, yet less extreme markings are harder to visually identify using the full scan X3P and comparison plots.
+To visually assess the similarity between these markings, we can "zoom in" to specific regions of the cartridge case surfaces using the cell-based comparison procedure outlined in \autoref{alg:cellComparison}.
+Recall that the cell-based comparison returns a set of estimated registrations, one for each source cell $t = 1,...,T_A$.
+Using these estimated registrations, we extract a matrix from the target scan that represents the patch in the target scan that maximized the CCF with the source cell.
+That is, we extract the target "mate" for each source cell.
+\autoref{fig:complementCompPlot_cellBased} shows the comparison plot of cell 3, 8 from scan K013sA1 and its target mate in K013sA2.
+The left column again shows the two aligned surface matrices, the middle column the filtered element-wise average using $\tau = 1$ microns, and the right column the filtered differences.
+Compared to the depiction of this region in \autoref{fig:complementCompPlot_fullScan}, it is much easier to identify similar and different markings using this zoomed-in visualization.
+For example, the dark purple "dots" on the upper-left side of the two scans are more prominent in this visualization.
+We note that the color scale mapping now ranges from -5 to 4.1 microns compared to -12.3 to 20.3 microns in \autoref{fig:complementCompPlot_fullScan}.
+Small, local markings are more prominent when we use the comparison plot on the output of the cell-based comparison procedure.
+
+<<matchCCP_combine, cache=TRUE,include=FALSE>>=
 refCell <- comparisonResults_cell %>%
   filter(cellIndex == "3, 8") %>%
   slice(1) %>%
   pull(cellHeightValues) %>%
   .[[1]]
+
+refCell$surface.matrix <- refCell$surface.matrix*refCell$cmcR.info$scaleByVal
 
 targCell <- comparisonResults_cell %>%
   filter(cellIndex == "3, 8") %>%
@@ -670,51 +718,164 @@ targCell <- comparisonResults_cell %>%
   pull(alignedTargetCell) %>%
   .[[1]]
 
-patchComparisonPlts_combined <- impressions::x3p_comparisonPlot(
-  x3p1 = refCell,x3p2 = targCell,labelSize = 3,
-  plotLabels = c("K013sA1 Cell 3, 8",
-                 "K013sA2 Aligned Cell",
-                 "Element-wise Average",
-                 "K013sA1 Cell 3, 8\nDifferences",
-                 "K013sA2 Aligned Cell\nDifferences"))
+targCell$surface.matrix <- targCell$surface.matrix*targCell$cmcR.info$scaleByVal
 
-ggsave(plot = patchComparisonPlts_combined,filename = "figures/complementCompPlot.png",
+patchComparisonPlts_cellBased <- impressions::x3p_comparisonPlot(x3p1 = refCell,x3p2 = targCell,threshold = 1,
+                                                                 plotLabels = c("K013sA1\nCell 3, 8",
+                                                                                "K013sA2\nAligned Cell",
+                                                                                "Filtered Element-wise Average",
+                                                                                "K013sA1\nCell 3, 8\nDifferences",
+                                                                                "K013sA2\nAligned Cell\nDifferences"),
+                                                                 labelSize = 2.5,
+                                                                 legendLength = grid::unit(6,"in"),
+                                                                 legendUnit = "micron",
+                                                                 legendQuantiles = c(0,.01,.5,.99,1))
+
+ggsave(plot = patchComparisonPlts_cellBased,filename = "figures/complementCompPlot_cellBased.png",
        width = 7,height = 7,bg = "white")
-knitr::plot_crop("figures/complementCompPlot.png")
+knitr::plot_crop("figures/complementCompPlot_cellBased.png")
 @
 
-<<matchCCP_show, out.width=".9\\textwidth",fig.cap="\\label{fig:fivePlotComparison} The complementary comparison plot for two cells from the comparison between cell 3, 8 of scan K013sA1 and its aligned mate in scan K013sA2. The left column shows the surface values of these two cells. Note that non-overlapping pixels are shown in dark gray in the bottom left plot. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. A gray border is used to emphasize the filtered vs. non-filtered regions.", cache=FALSE>>=
-knitr::include_graphics("figures/complementCompPlot.png")
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/complementCompPlot_cellBased.png}
+\caption{The comparison plot for cell 3, 8 of scan K013sA1 and its aligned mate in scan K013sA2. The left column shows the surface values of these two cells. Note that non-overlapping pixels are shown in dark gray in the bottom left plot. The middle column shows similarities between the surfaces in the form of the filtered element-wise average. The right column shows the surface values with the opposite filtering used in the filtered element-wise average plot. We use a gray border to emphasize the filtered vs. non-filtered regions.}
+\label{fig:complementCompPlot_cellBased}
+\end{figure}
+
+
+<<eval=TRUE,cache=TRUE,include=FALSE>>=
+K013sA1 <- x3ptools::x3p_read("data/K013sA1_processed.x3p")
+K013sA1$surface.matrix <- K013sA1$surface.matrix*1e6
+K013sA1$header.info$incrementY <- K013sA1$header.info$incrementY*1e6
+K013sA1$header.info$incrementX <- K013sA1$header.info$incrementX*1e6
+K002eG1 <- x3ptools::x3p_read("data/K227iG3_processed.x3p")
+
+K013sA1 <- x3ptools::x3p_interpolate(K013sA1,resx = K002eG1$header.info$incrementX)
+
+cellBased_nonMatch <-
+  scored::comparison_cellBased(K013sA1,K002eG1,
+                               numCells = c(8,8),
+                               direction = "one",
+                               returnX3Ps = TRUE) %>%
+  dplyr::group_by(direction,cellIndex) %>%
+  dplyr::mutate(cellHeightValues = ifelse(fft_ccf == max(fft_ccf),cellHeightValues,NA),
+         alignedTargetCell = ifelse(fft_ccf == max(fft_ccf),alignedTargetCell,NA)) %>%
+  dplyr::ungroup()
+
+similarNonMatchCells <- cellBased_nonMatch %>%
+  dplyr::filter(!is.na(cellHeightValues))
+
+nonMatch_similarCell_plt <- similarNonMatchCells %>%
+  dplyr::filter(cellIndex == "6, 1") %>%
+  dplyr::select(cellIndex,cellHeightValues,alignedTargetCell) %>%
+  purrr::pmap(~ {
+
+    ref <- ..2
+    ref$surface.matrix <- ref$surface.matrix*ref$cmcR.info$scaleByVal
+
+    targ <- ..3
+    targ$surface.matrix <- targ$surface.matrix*targ$cmcR.info$scaleByVal
+
+    impressions::x3p_comparisonPlot(ref,targ,plotLabels = c(paste0("K013sA1 Cell",..1),
+                                                            "K002eG1 Aligned Cell",
+                                                            "Element-wise Average",
+                                                            paste0("K013sA1 Cell",..1,"\nDifferences"),
+                                                            "K002eG1 Aligned Cell\nDifferences"))
+
+  })
+
+ggsave(plot=nonMatch_similarCell_plt[[1]],filename="images/nonMatch_similarCell.png",width = 10,height = 6,bg = "white")
+# knitr::plot_crop("figures/nonMatch_similarCell.png")
 @
+
+<<eval=FALSE>>=
+# debugonce(cmcR::cmcPlot)
+cmcR::cmcPlot(K013sA1,K002eG1,
+              cmcClassifs =  similarNonMatchCells %>%
+                filter(direction == "reference_vs_target") %>%
+                mutate(originalMethod = ifelse(cellIndex == "6, 1",
+                                               "CMC","non-CMC")))
+
+pltLegend <- cowplot::get_legend(x3pPlot(reference,target,legend.quantiles = c(0,.01,.5,.99,1),legendLength = 10))
+
+similarNonMatchCells_pltLabeled <-
+  ((similarNonMatchCells_plt$reference +
+    theme(strip.text = element_blank(),
+          legend.position = "none") +
+    annotate(geom = "text",x = 230,y = 200,label = "K013sA1")) +
+  (similarNonMatchCells_plt$target +
+     theme(strip.text = element_blank()) +
+     annotate(geom = "text",x = 230,y = 200,label = "K002eG1")) +
+    (pltLegend)) +
+  patchwork::plot_layout(nrow = 1,widths = c(.4,.4,.1))
+
+ggsave(plot = similarNonMatchCells_pltLabeled,
+       filename = "images/similarNonMatchCells_pltLabeled.png",
+       bg = "white",width = 10,height = 5)
+knitr::plot_crop("images/similarNonMatchCells_pltLabeled.png")
+@
+
+
+The comparison plot is particularly useful for understanding the results of the cell-based registration procedure outlined in \autoref{alg:cellComparison}.
+For example, the top of \autoref{fig:similarNonMatchCells_pltLabeled} shows an aligned cell 6, 1 between two non-match scans K013sA1 and K002eG1.
+It's difficult to visually identify many similarities between the two scans, which is expected given that the cartridge cases originate from different firearms.
+However, the bottom of \autoref{fig:similarNonMatchCells_pltLabeled} depicting the comparison plot between the aligned cell 6, 1 pair demonstrates that there are actually local similarities.
+From the element-wise average we see that there are similar purple and orange regions shared between these two cells.
+% We also see in the third column that there are large regions where the two surfaces differ.
+% \jz{[Need to punch this section up more. The primary takeaway here is that scans may look different at the global scale but locally similar, so we need to consider both similarities AND differences.]}
+
+This example underscores the need to analyze both similarities \textit{and} differences when comparing two scans.
+We're bound to find similarities if this is all we look for, so we also need to describe the differences between the surfaces.
+In the next section, we discuss a set of summary statistics computed from the Comparison Plot that quantify both the similarities and differences between two scans.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{images/nonMatchCell_comparisonPlot.png}
+\caption{(Top) We consider a non-match pair of cartridge cases K013sA1 and K002eG1 that don't appear to share many similar markings at first glance. (Bottom) After registering cell 6, 1 from K013sA1 in K002eG1 using \autoref{alg:cellComparison}, we then consider the Comparison Plot between the aligned pair of cells. Using this zoomed-in view, we can clearly see that there are actually local similarities between the two cartridge cases despite being fired from different firearms. This demonstrates how the comparison plot is useful for understanding registration results from \autoref{alg:cellComparison}.}
+\label{fig:similarNonMatchCells_pltLabeled}
+\end{figure}
 
 
 \subsection{Visual Diagnostic Statistics}
 
-Consider \autoref{fig:filterLabeling} that shows the filtered element-wise average $\mathcal{F}_{|A - B^*| < \tau}\left(\frac{1}{2}(A + B^*)\right)$ on the left and the associated $cond$ matrix $|A - B^*| < \tau$ visualized in black-and-white in the middle where filtered elements are shown in white.
-We use a connected components labeling algorithm detailed in \citet{haralick_shapiro} to identify individual neighborhoods of filtered elements.
-More precisely, the algorithm returns a set of sets $\pmb{S}_d = \{S_{d,1},S_{d,2},...,S_{d,L_d}\}$ where each $S_{d,l}$ is a set of indices of the $cond$ matrix that have a value of $TRUE$ and are connected by a chained-together sequence of 4 (Rook's) neighborhoods.
-The right side of \autoref{fig:filterLabeling} shows each $S_{d,l}$ distinguished by different fill colors, $l = 1,...,L_d$.
+In the last section, we used the comparison plot to make a number of qualitative observations about the similarities and differences between the impressions of two pairs of cartridge cases.
+These observations aligned with what our intuition says should be true for two matching/non-matching cartridge cases.
+For example, we would expect there to be many more similarities than differences for a matching pair compared to a non-matching pair.
+In this section, we translate these sorts of qualitative observations into a set of numerical features that can be used to determine whether two cartridge case scans were fired from the same firearm.
 
-<<include=FALSE>>=
-compPlt <- patchComparisonPlts_combined
+<<neghborhoodLabeling_code,include=FALSE,eval=FALSE>>=
+knownMatch_fullScan <- readRDS("data/comparisonResults_fullScan.rds")
 
-plt1 <- compPlt$patches$plots[[3]]
-
-plt1$layers[[3]] <- NULL
+reference <- knownMatch_fullScan$cellHeightValues[[1]]
+reference$surface.matrix <- reference$surface.matrix*reference$cmcR.info$scaleByVal
+target <- knownMatch_fullScan$alignedTargetCell[[1]]
+target$surface.matrix <- target$surface.matrix*target$cmcR.info$scaleByVal
 
 scanFilterBinarized <- reference %>%
   impressions::x3p_elemAverage(target) %>%
   impressions::x3p_to_dataFrame() %>%
-  mutate(value = (abs(c({reference$surface.matrix - target$surface.matrix})) > x3p_sd(reference,target)))
+  mutate(value = (abs(c({reference$surface.matrix - target$surface.matrix})) > 1))
 
-plt2 <- scanFilterBinarized %>%
+scanFilterBinarized_similarities <- scanFilterBinarized %>%
   ggplot(aes(x=x,y=y,fill=value)) +
   geom_raster() +
-  scale_fill_manual(values = c("black","white"),na.value = "gray65") +
-  coord_fixed(expand = FALSE) +
+  coord_fixed(expand=FALSE) +
   theme_void() +
-  theme(legend.position = "none")
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("white","black"),na.value = "gray65") +
+  annotate(geom = "text",x = 230,y = 200,label = "Abs. Difference \u2264 1 micron")
 
+scanFilterBinarized_differences <- scanFilterBinarized %>%
+  mutate(value = !value) %>%
+  ggplot(aes(x=x,y=y,fill=value)) +
+  geom_raster() +
+  coord_fixed(expand=FALSE) +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("white","black"),na.value = "gray65") +
+  annotate(geom = "text",x = 230,y = 200,label = "Abs. Difference > 1 micron")
 
 scanFilterLabeled <- scanFilterBinarized %>%
   mutate(x = x + 1,y = y + 1,
@@ -732,20 +893,292 @@ plt3 <- scanFilterLabeled %>%
   theme(legend.position = "none") +
   scale_fill_manual(values = c("gray65",sample(RColorBrewer::brewer.pal(12,"Paired"),size = length(unique(scanFilterLabeled$value)) - 1,replace = TRUE)))
 
-labeledBlobPlts_combined <- (plt1 + plt2 + plt3) & theme(panel.border = element_rect(colour = "black",fill = NA))
+matchRegionSizeHist <- scanFilterLabeled %>%
+  mutate(value = as.numeric(value)) %>%
+  filter(value > 1) %>%
+  group_by(value) %>%
+  tally() %>%
+  mutate(n = n*reference$header.info$incrementX*1e6) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(binwidth = 100) +
+  theme_bw() +
+  coord_cartesian(expand=FALSE,ylim = c(-5,300),xlim = c(-150,5500)) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(x = expression(Region~Size~'('~micron^2~')'),
+       y = "Number of Regions") +
+  theme(axis.text = element_text(size = 5),
+        axis.title = element_text(size = 6))
 
-ggsave(plot = labeledBlobPlts_combined,filename = "figures/binarizedBlobs.png",bg = "white")
-knitr::plot_crop("figures/binarizedBlobs.png")
+scanFilterBinarized_differences <- scanFilterBinarized %>%
+  mutate(value = !value) %>%
+  ggplot(aes(x=x,y=y,fill=value)) +
+  geom_raster() +
+  coord_fixed(expand=FALSE) +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("white","black"),na.value = "gray65") +
+  annotate(geom = "text",x = 230,y = 200,label = "Abs. Difference > 1 micron",size = 2.5)
+
+plt <- ((scanFilterBinarized_differences +
+           theme(plot.margin = unit(c(0,.1,0,.1),"in"))) |
+          (plt3 +
+             theme(plot.margin = unit(c(0,0,0,.1),"in")) +
+             annotate(geom = "text",x = 230,y = 200,label = "Labeled Regions",size = 2.5)) |
+          matchRegionSizeHist) &
+  theme(panel.border = element_rect(colour = "black",fill = NA))
+
+ggsave(plt,filename = "figures/filterLabeling.png",bg = "white")
+knitr::plot_crop("figures/filterLabeling.png")
+
+comparisonResults_cell <- readRDS("data/comparisonResults_cell.rds")
+
+refCell <- comparisonResults_cell %>%
+  filter(cellIndex == "3, 8") %>%
+  slice(1) %>%
+  pull(cellHeightValues) %>%
+  .[[1]]
+
+refCell$surface.matrix <- refCell$surface.matrix*refCell$cmcR.info$scaleByVal
+
+targCell <- comparisonResults_cell %>%
+  filter(cellIndex == "3, 8") %>%
+  slice(1) %>%
+  pull(alignedTargetCell) %>%
+  .[[1]]
+
+targCell$surface.matrix <- targCell$surface.matrix*targCell$cmcR.info$scaleByVal
+
+patchComparisonPlts_cellBased <- impressions::x3p_comparisonPlot(x3p1 = refCell,x3p2 = targCell,threshold = 1,
+                                                                 plotLabels = c("K013sA1\nCell 3, 8",
+                                                                                "K013sA2\nAligned Cell",
+                                                                                "Filtered Element-wise Average",
+                                                                                "K013sA1\nCell 3, 8\nDifferences",
+                                                                                "K013sA2\nAligned Cell\nDifferences"),
+                                                                 # labelSize = 2.5,
+                                                                 labelSize = 8,
+                                                                 legendLength = grid::unit(6,"in"),
+                                                                 legendUnit = "micron",type = "list",
+                                                                 legendQuantiles = c(0,.01,.5,.99,1))
+library(patchwork)
+plt <- (patchComparisonPlts_cellBased[[4]] + patchComparisonPlts_cellBased[[5]])
+
+cor(x = c(refCell$surface.matrix),y = c(targCell$surface.matrix),use = "pairwise.complete.obs")
+
+ggsave(plot = plt,filename = "images/cellBasedDifferences.png",width = 10,height = 7,bg="white")
+knitr::plot_crop("images/cellBasedDifferences.png")
 @
 
-<<>>=
-knitr::include_graphics("figures/binarizedBlobs.png")
-@
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=.8\textwidth]{images/similaritiesDifferencesRatio.png}
+\caption{We compute the ratio between the number of similar and different elements of two aligned scans, which are defined to be elements for which the two surfaces are at most or greater than 1 micron, respectively. These are represented above as white pixels in the two images on the left. We then count the number of white pixels in each image and compute their ratio, resulting in this example in a value of 2.84. We expect this ratio to be larger for matching comparisons, on average, than non-matching comparisons.}
+\label{fig:similaritiesDifferencesRatio}
+\end{figure}
 
-\subsection{The cartridgeInvestigatR Application}
+The first statistic is the ratio between the number of similarities and differences for a pair of scans.
+To compute this, we consider the number of $TRUE$ elements the $cond$ matrices $|A - B^*| \leq \tau$ and $|A - B^*| > \tau$.
+\autoref{fig:similaritiesDifferencesRatio} shows an example of this ratio computed for the matching pair K013sA1 and K013sA2, which results in a value of 2.84 meaning there are almost three times as many similarities as there are differences between the two scans.
 
+Mathematically, the similarities vs. differences ratio is given by
+\begin{align*}
+r_{d} = \frac{\pmb{1}^T I(|A - B^*| \leq \tau) \pmb{1}}{\pmb{1}^T I(|A - B^*| > \tau) \pmb{1}}
+\end{align*}
+where $\pmb{1} \in \mathbb{R}^k$ is a column vector of ones and $I(\cdot)$ is the element-wise, matrix-valued indicator function.
+The inner products in the numerator and denominator act to count the number of TRUE elements in the two complementary $cond$ matrices.
+
+We also compute similarities vs. differences ratios for the results of the cell-based comparison procedure outlined in \autoref{alg:cellComparison}.
+Specifically, we compute the ratio for a cell from the source matrix and its aligned mate in the target matrix, resulting in the ratio value $r_{d,t}$.
+We expect that the similarities vs. differences ratio will be larger for matching comparisons compared to non-matching comparisons.
+
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{figures/filterLabeling.png}
+\caption{(Left) After aligning two scans, we filter regions that are "different" from each other, meaning the absolute difference between surface values is larger than some threshold. We binarize the scan into different vs. similar regions - shown in white and black, respectively. (Middle) Using a connected components labeling algorithm, we identify connected "neighborhoods" of filtered elements, which are distinguished here by fill color. (Right) Considering the distribution of the region sizes, we see that the vast majority of the regions are relatively small, under 1000 square microns, although there are some outliers. We assume that the average region size will be relatively small for truly matching comparisons.}
+\label{fig:filterLabeling}
+\end{figure}
+
+We assume markings on the surfaces of two aligned, matching cartridge cases will line up with each other.
+This implies that regions that we define as "different" should be relatively small in area.
+We translate this into a numerical feature by considering the $TRUE$ elements of the $cond$ matrix $|A - B^*| > \tau$, which are elements where the surfaces differ by at least $\tau$.
+For example, the left side of \autoref{fig:filterLabeling} shows the matrix $|A - B^*| > 1$ for $A$ = K013sA1 and $B$ = K013sA2 with $TRUE$ elements represented in white.
+We then use a connected components labeling algorithm detailed in \citet{Hesselink2001} and implemented in \citet{imager} to identify connected "neighborhoods" of $TRUE$ elements.
+Specifically, the algorithm returns a set of sets $\pmb{S}_d = \{S_{d,1},S_{d,2},...,S_{d,L_d}\}$ where each $S_{d,l}$ is a set of indices of the $cond$ matrix that have a value of $TRUE$ and are connected by a chained-together sequence of 4 (Rook's) neighborhoods.
+The middle of \autoref{fig:filterLabeling} shows each $S_{d,l}$ distinguished by different fill colors, $l = 1,...,L_d$.
+
+The right side of \autoref{fig:filterLabeling} shows a histogram of the region sizes, denoted $|S_{d,l}|$ for $l = 1,...,L_d$.
+We see that most of the sizes are relatively small, which agrees with our initial assumption.
+There are a handful of larger regions that, when cross-referenced with the surface values in the original scans (see \autoref{fig:complementCompPlot_fullScan}, for example), are clearly different from each other, meaning the visual diagnostic works as intended.
+We assume that the distribution of region sizes for a matching pair will have far fewer extreme values compared to a non-matching pair.
+Again, we extend our notation to accommodate individual cells.
+Let $\pmb{S}_{d,t} = \{S_{d,t,1},...,S_{d,t,L_{d,t}}\}$ denote the set of labeled neighborhoods for a cell $t = 1,...,T_d$, $d = A,B$.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=.7\textwidth]{images/matchingCellDifferenceCorrelation.png}
+\caption{The plots show regions of two aligned cells from a matching comparison. Specifically, we filter these cells to only elements for which the surfaces are at least 1 micron apart. We note here that even among these "different" regions, the trends in the surface values are similar, which may occur because of inconsistent contact with markings on a firearm's breech face across repeated fires. The relatively high correlation between these two cells of 0.84 reflects this similarity.}
+\label{fig:matchingCellDifferenceCorrelation}
+\end{figure}
+
+The final statistic we compute is based on the observation that, even among regions that we define as "different," the surface values of two matching cartridge cases should follow similar trends.
+There may be variability in the depth of markings impressed by a firearm's breech face across repeated fires, but the overall shape/trend of the markings should remain consistent.
+For example, \autoref{fig:matchingCellDifferenceCorrelation} shows regions of two cells from a comparison between matching scans $A$ = K013sA1 and $B$ = K013sA2.
+We filter these two cells to elements where their surfaces are at least one micron apart.
+The surface values of these "differences" vary in a similar manner despite being far from each other.
+This observation is represented in the correlation value 0.84, which is relatively high for cartridge case comparisons.
+We calculate the correlation by vectorizing the two filtered surface matrices and treating missing values by case-wise deletion.
+
+To measure the similarity in the surface value trends, we calculate the correlation $cor_{d,\text{full},\text{diff}}$ between the filtered matrices $\mathcal{F}_{|A - B^*| > \tau}(A)$ and $\mathcal{F}_{|A - B^*| > \tau}(B^*)$ for $d = A$ and $\mathcal{F}_{|A^* - B| > \tau}(A^*)$ and $\mathcal{F}_{|A^* - B| > \tau}(B)$ for $d = B$.
+We assume that $cor_{d,\text{full},\text{diff}}$ will be large for matching cartridge case pairs relative to non-matching pairs.
+Said another way, we assume that regions of matching cartridge cases that are different will still follow similar trends.
+This can occur due to variability in the amount of contact between a cartridge case and breech face across multiple fires of a single firearm.
+
+We extend our notation to accommodate cell comparisons $t = 1,...,T_d$ for $d = A,B$ using subscripts: $cor_{d,t,\text{diff}}$.
+For example, $cor_{A,t,\text{diff}}$ is the correlation between cell filtered surface matrices $\mathcal{F}_{|A_t - B_{t,\theta_t^*}^*| > \tau}(A_t)$ and $\mathcal{F}_{|A_t - B_{t,\theta_t^*}^*| > \tau}(B_{t,\theta_t^*}^*)$ where $B_{t,\theta_t^*}^*$ is the matrix extracted from $B^*$ that maximizes the CCF with $A_t$.
+\autoref{fig:matchingCellDifferenceCorrelation} shows an example of computing the correlation between cell 2, 8 from scan K013sA1 and its mate in K013sA2.
+
+These visual diagnostic statistics provide a quantitative complement to the qualitative observations we draw from the Comparison Plot.
+They are useful by themselves to understand or justify why a source scan or cell aligned to a specific region in the target.
+In the next section, we explore their use as numerical features to distinguish between matching and non-matching comparisons.
+
+\section{Statistical Learning from Visual Diagnostics}
+
+In this section, we explore using the Visual Diagnostic Features discussed above as features to differentiate between matching and non-matching comparisons.
+We consider a data set of 510 cartridge cases collected as part of a study by \citep{Baldwin} and scanned at the Roy J. Carver High Resolution Microscopy Facility at Iowa State University.
+The researchers fired the Remington 9mm centerfire cartridge cases from 25 Ruger SR9 pistols.
+We scanned these cartridge cartridge cases using the Cadre$^{\text{TM}}$ 3D-TopMatch High Capacity Scanner.
+See \jz{[ACES paper]} for more information on these cartridge case data.
+
+We split the cartridge cases data set by randomly selecting all 210 cartridge cases from 10 of the 25 firearms for training and using the 300 cartridge cases from the remaining 15 firearms for testing.
+We consider every pairwise comparison between these cartridge cases, meaning the training data consists of $\binom{210}{2} = 21,945$ comparisons and test data consists of $\binom{300}{2} = 44,850$ comparisons.
+
+\subsection{Visual Diagnostic Statistics as Features}
+
+Let $A$ and $B$ denote a pair of cartridge cases.
+We first perform the registration procedure of \autoref{alg:registration} in both comparison directions using a rotation grid of $\pmb{\Theta} = \{-30^{\circ} , -27^{\circ}, ..., 27^{\circ}, 30^{\circ}\}$, resulting in estimated full scan registrations $(m_{A}^*, n_{A}^*, \theta_A^*, CCF_{\max,A})$ and $(m_{B}^*, n_{B}^*, \theta_B^*, CCF_{\max,B})$.
+Using these registrations, we obtain the aligned versions of the target scans; $B^*$ for $d = A$ and $A^*$ for $d = B$.
+
+Next, we perform the cell-based comparison procedure of \autoref{alg:cellComparison} using rotation grids $\pmb{\Theta}_d' = \{\theta_d^* - 2^{\circ}, \theta_d^* - 1^{\circ},\theta_d^*,\theta_d^* + 1^{\circ}, \theta_d^* + 2^{\circ}\}$ for $d = A,B$ in both comparison directions, resulting in cell-wise registration sets $\pmb{F}_A$ and $\pmb{F}_B$.
+For each cell $t = 1,...,T_d$, we compute its estimated registration as:
+\begin{align*}
+\theta_{d,t}^* &= \arg \max_\theta \{CCF_{\max, d, t, \theta} : \theta \in \pmb{\Theta}_d' \} \\
+m_{d,t}^* &= m_{d,t,\theta_{d,t}^*}^* \\
+n_{d,t}^* &= n_{d,t,\theta_{d,t}^*}^*.
+\end{align*}
+Using this estimated registration, we extract the cell's mate from the target scan.
+For $d = A$ and some cell $t$, let $B_{t,\theta_{d,t}^*}^*$ denote its aligned mate in scan $B^*$ and assume the converse for $d = B$.
+
+At this point, we have the aligned mates for the source scans in both comparison directions at two both the full scan and cell scales.
+Following the notion that many cartridge cases may only have a few areas with distinguishable markings, we expect the features at these scales to give us qualitatively different information.
+Features at the cell scale may help illuminate regions of high similarity between two scans that the full scan features are unable to discern.
+However, we've seen in the example of \autoref{fig:similarNonMatchCells_pltLabeled} that even non-matching scans can share local similarities, in which case full scan features would prove more useful.
+% We expect that the combination of these two scales will be more informative than either one separately.
+
+We consider the average \textbf{full-scan similarities vs. differences ratio} across the two comparison directions:
+\begin{align*}
+r_{\text{full}} = \frac{1}{2}(r_A + r_B).
+\end{align*}
+We expect $r_{\text{full}}$ to be large for matching pairs compared to non-matching pairs.
+That is, truly matching pairs will have more similarities than differences.
+
+We also calculate features based on the ratio for cell comparisons $t = 1,...,T_d$, $d = A,B$.
+Let $r_{d,t}$ denote the ratio for cell comparison $t$ in direction $d$.
+We consider the \textbf{average} and \textbf{standard deviation of the cell-based similarities vs. differences ratio}:
+\begin{align*}
+\bar{r}_{\text{cell}} &= \frac{1}{T_A + T_B} \sum_{d \in \{A,B\}} \sum_{t = 1}^{T_d} r_{d,t} \\
+s_{\text{cell}, r} &= \sqrt{\frac{1}{T_A + T_B - 1} \sum_{d \in \{A,B\}} \sum_{t = 1}^{T_d} (r_{d,t} - \bar{r}_{\text{cell}})^2}.
+\end{align*}
+We expect $\bar{r}_{\text{cell}}$ and $s_{\text{cell}, r}$ to be large for matching cartridge case pairs relative to non-match pairs.
+
+We calculate the following features using the full-scan labeled neighborhoods:
+\begin{align*}
+\overline{|S|}_{\text{full}} &= \frac{1}{L_A + L_B} \sum_{d \in \{A,B\}} \sum_{l=1}^{L_d} |S_{d,l}| \\
+s_{\text{full},|S|} &= \sqrt{\frac{1}{L_A + L_B - 1} \sum_{d \in \{A,B\}} \sum_{l=1}^{L_d} (|S_{d,l}| - \overline{|S|}_{\text{full}})^2}.
+\end{align*}
+We assume that the \textbf{average} and \textbf{standard deviation of the full-scan neighborhood sizes} will be small for matching cartridge case  pairs relative to non-matching pairs.
+That is, we assume that the the regions of $A$ and $B$ that are different will all be small, on average, and vary little in size.
+This assumption is appropriate assuming that the breech face leaves consistent markings on fired cartridge cases.
+
+We calculate the per-cell average and standard deviation of the labeled neighborhood cell size:
+\begin{align*}
+\overline{|S|}_{d,t} &= \frac{1}{L_{d,t}} \sum_{l=1}^L |S_{d,t,l}| \\
+s_{d,t,|S|} &= \sqrt{\frac{1}{L_{d,t} - 1} \sum_{l=1}^{L_{d,t}} (|S_{d,t,l}| - \overline{|S|}_{\text{cell},d,t})^2}.
+\end{align*}
+
+We assume that the cell-based $\overline{|S|}_{d,t}$ and $s_{d,t,|S|}$ will be small, on average, for truly matching cartridge cases.
+Consequently, we use the sample average of these as features:
+\begin{align*}
+\overline{|S|}_{\text{cell}} &= \frac{1}{T_A + T_B} \sum_{d \in \{A,B\}} \sum_{t=1}^{T_d} \overline{|S|}_{d,t} \\
+\bar{s}_{\text{cell},|S|} &= \frac{1}{T_A + T_B} \sum_{d \in \{A,B\}} \sum_{t=1}^{T_d} s_{d,t,|S|}.
+\end{align*}
+We assume that the \textbf{average cell-wise neighborhood size} and the \textbf{average standard deviation of the cell-wise neighborhood sizes} will be small for matching cartridge case pairs relative to non-match pairs.
+
+We use the average \textbf{full-scan differences correlation} as a feature:
+\begin{align*}
+cor_{\text{full},\text{diff}} = \frac{1}{2}\left(cor_{A,\text{full},\text{diff}} + cor_{B,\text{full},\text{diff}}\right).
+\end{align*}
+We calculate the \textbf{average cell-based differences correlation} across all cells and both directions:
+\begin{align*}
+\overline{cor}_{\text{cell},\text{diff}} &= \frac{1}{T_A + T_B} \sum_{d \in \{A,B\}} \sum_{t=1}^{T_d} cor_{d,t,\text{diff}}.
+\end{align*}
+
+\autoref{fig:visualFeaturePairs} shows a "generalized pairs plot" \citep{gpp, ggally} of the 9 visual diagnostic features distinguished by the ground-truth nature of the comparisons for the 21,945 training comparisons.
+The ground truth is represented by the left column/top row of the plot.
+We see in the bar plot in top left corner that there are 19,756 non-matching comparisons to 2,199 matching comparisons.
+This imbalance is due to the fact that we consider every pairwise comparison between cartridge cases from 10 training firearms.
+
+The other visuals in the first row show box plots of the 9 features, which complement the density plots along the main diagonal of each feature as well as the un-normalized histograms in the first column.
+Although these three visuals depict the same data, they convey different information about the data.
+For example, the density plots in the main diagonal show the estimated conditional distributions of the 9 features given ground-truth, which gives us intuition about the discriminative nature of the features.
+The cell-based average different region correlation, denoted $\overline{cor}_{\text{cell, diff}}$ in the previous section, has greater separation between the matching and non-matching distributions compared to the cell based average different region size, $\overline{|S|}_{\text{cell}}$ in the last section.
+The histograms in the first column convey similar information as the density plots, yet emphasize the class imbalance between the matching and non-matching comparisons.
+
+On the other hand, the box plots in the first row provide a more succinct summary of rank statistics and outliers for each feature.
+For example, we see that the full scan average different region size feature, $\overline{|S|}_{\text{full}}$, has an extreme non-match outlier with a value over 700.
+\jz{[More to say about this specific outlier? Perhaps regarding other characteristics?]}
+
+\jz{[More to say about univariate summaries?]}
+
+
+Barring the first row/column, the off-diagonal visuals show summaries of the pairwise relationships between the 9 features.
+This provides us with intuition on which features "share" information.
+The lower-triangle visuals show scatterplots for each pair of features with each point representing a single pairwise comparison while the upper-triangle shows correlation summaries between each feature, also distinguished by ground-truth.
+We see that the variables with the strongest relationship are the average and standard deviation of the cell-based similarities vs. differences ratio, $\bar{r}_{\text{cell}}$ and $s_{\text{cell},r}$ in the previous section, although their seemingly quadratic relationship is expected.
+We see a similar, albeit more linear, relationship between the average and standard deviation of the cell-based region sizes.
+
+There are also notable relationships between full scan and cell-based features.
+For example, the relationship between full scan and cell-based different region correlations, $cor_{\text{full, diff}}$ and $cor_{\text{cell, diff}}$, is particularly strong for the matching compared to non-matching comparisons as evidenced by the starkly different correlations of 0.775 and 0.358, respectively.
+A pair of non-matching scans may have differences that vary in a similar manner at one scale, but not another.
+This could be an artifact of how matching and non-matching comparisons behave during the the full scan and cell-based registration procedures.
+For example, the full scan vs. cell-based estimated registrations from a matching comparison are more likely to agree, meaning the same markings are overlaid on top of one another at both scales.
+On the other hand, we wouldn't expect the full scan and cell-based registrations to agree for a non-matching comparison, so different markings may be compared at the two scales.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{images/featureDensity_visualDiag_pairs.png}
+\caption{Pairs plot for visual diagnostic feature values computed for 2,189 matching and 19,756 non-matching pairwise comparisons.}
+\label{fig:visualFeaturePairs}
+\end{figure}
+
+Overall, there are only a handful of feature pairs that have strong linear relationships, and many of these exhibit different behavior between the matching and non-matching comparisons.
+This indicates that the discriminatory power of one feature isn't fully accounted for by that of another feature and that each feature can more or less stand on its own merits to be included in a statistical model.
+In the next section, we explore results from fitting and testing binary classifiers using the visual diagnostic features.
+
+\subsection{Binary Classification Results}
 
 \section{Discussion}
+
+\subsection{Sensitivity to Filter Threshold}
+
+
+
+\subsection{Interactive cartridgeInvestigatR application}
+
+We developed an interactive web application called cartridgeInvestigatR to give non-programmers access to the visual diagnostic tools.
+The application is accessible at \url{https://csafe.shinyapps.io/cartridgeInvestigatR/}.
+In this section, we describe basic functionality of the application.
+
+\section{Conclusion}
 
 %----------------------------------------------------------------------------------------
 %	REFERENCE LIST
