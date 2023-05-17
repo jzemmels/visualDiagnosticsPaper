@@ -113,9 +113,6 @@ target_processed$surface.matrix <- target_processed$surface.matrix*1e6
 if(!file.exists("figures/K013sA2_original.png")){
   ggsave(impressions::x3pPlot(target_processed),filename = "figures/K013sA2_original.png")
 }
-
-# visualize two cartridge case surfaces using an rgl device
-source("code/x3pSurfaceVisualization.R",local = TRUE)
 @
 
 <<comparisonResults_code,cache=TRUE,include=FALSE>>=
@@ -540,10 +537,9 @@ surfaceDistance_plt <- surfaceDistance_df %>%
   mutate(x3p = "Element-wise Absolute Difference") %>%
   ggplot2::ggplot(ggplot2::aes(x = x,y = y)) +
   ggplot2::geom_raster(ggplot2::aes(fill = value))  +
-  ggplot2::scale_fill_gradientn(colours = c('#2d004b','#542788','#8073ac','#b2abd2','#d8daeb','#f7f7f7',
-                                                     '#fee0b6','#fdb863','#e08214','#b35806','#7f3b08'),
+  ggplot2::scale_fill_gradientn(colours = c('#f7f7f7','#fee0b6','#fdb863','#e08214','#b35806','#7f3b08'),
                                                      values = scales::rescale(quantile(surfaceDistance_df$value,
-                                                                                       c(0,.01,.025,.1,.25,.5,.75,0.9,.975,.99,1),
+                                                                                       c(0,.1,.5,0.9,.975,.99,1),
                                                                                        na.rm = TRUE)),
                                 breaks = function(lims){
                                   dat <- quantile(surfaceDistance_df$value,c(0,.8736,.99,1),na.rm = TRUE)
@@ -567,9 +563,9 @@ surfaceDistance_plt <- surfaceDistance_df %>%
     panel.grid.major = ggplot2::element_blank(),
     panel.grid.minor = ggplot2::element_blank(),
     panel.background = ggplot2::element_blank()) +
-  ggplot2::guides(fill = ggplot2::guide_colourbar(barheight = 7,
-                                                  label.theme = ggplot2::element_text(size = 5),
-                                                  title.theme = ggplot2::element_text(size = 7),
+  ggplot2::guides(fill = ggplot2::guide_colourbar(barheight = 20,
+                                                  label.theme = ggplot2::element_text(size = 10),
+                                                  title.theme = ggplot2::element_text(size = 14),
                                                   frame.colour = "black",
                                                   ticks.colour = "black"),
                   colour = 'none') +
@@ -1044,17 +1040,14 @@ In the next section, we explore their use as numerical features to distinguish b
 \section{Statistical Learning from Visual Diagnostics}
 
 In this section, we explore using the Visual Diagnostic Features discussed above as features to differentiate between matching and non-matching comparisons.
-We consider a data set of 510 cartridge cases collected as part of a study by \citep{Baldwin} and scanned at the Roy J. Carver High Resolution Microscopy Facility at Iowa State University.
-The researchers fired the Remington 9mm centerfire cartridge cases from 25 Ruger SR9 pistols.
+We consider a data set of 210 cartridge cases scanned at the Roy J. Carver High Resolution Microscopy Facility at Iowa State University that were collected as part of a study by \citep{Baldwin}.
+The researchers fired the Remington 9mm centerfire cartridge cases from 10 Ruger SR9 pistols.
 We scanned these cartridge cartridge cases using the Cadre$^{\text{TM}}$ 3D-TopMatch High Capacity Scanner.
 See \jz{[ACES paper]} for more information on these cartridge case data.
 
-We split the cartridge cases data set by randomly selecting all 210 cartridge cases from 10 of the 25 firearms for training and using the 300 cartridge cases from the remaining 15 firearms for testing.
-We consider every pairwise comparison between these cartridge cases, meaning the training data consists of $\binom{210}{2} = 21,945$ comparisons and test data consists of $\binom{300}{2} = 44,850$ comparisons.
-
 \subsection{Visual Diagnostic Statistics as Features}
 
-Let $A$ and $B$ denote a pair of cartridge cases.
+Let $A$ and $B$ denote cartridge case scans.
 We first perform the registration procedure of \autoref{alg:registration} in both comparison directions using a rotation grid of $\pmb{\Theta} = \{-30^{\circ} , -27^{\circ}, ..., 27^{\circ}, 30^{\circ}\}$, resulting in estimated full scan registrations $(m_{A}^*, n_{A}^*, \theta_A^*, CCF_{\max,A})$ and $(m_{B}^*, n_{B}^*, \theta_B^*, CCF_{\max,B})$.
 Using these registrations, we obtain the aligned versions of the target scans; $B^*$ for $d = A$ and $A^*$ for $d = B$.
 
@@ -1135,7 +1128,7 @@ The histograms in the first column convey similar information as the density plo
 
 On the other hand, the box plots in the first row provide a more succinct summary of rank statistics and outliers for each feature.
 For example, we see that the full scan average different region size feature, $\overline{|S|}_{\text{full}}$, has an extreme non-match outlier with a value over 700.
-\jz{[More to say about this specific outlier? Perhaps regarding other characteristics?]}
+\jz{[More to say about this specific outlier? Look up example and talk about why it's an outlier]}
 
 \jz{[More to say about univariate summaries?]}
 
@@ -1166,7 +1159,80 @@ In the next section, we explore results from fitting and testing binary classifi
 
 \subsection{Binary Classification Results}
 
+Using the 21,945 training comparisons, we train three binary classifier models: based on a decision tree \citep{Breiman2017,rpart}, random forest \citep{Breiman2001,randomForest}, and logistic regression \citep{stats}.
+Note that do not intend to present a "final" model recommendation that should be used in forensic casework here - our present goal is merely to explore the discriminatory power of the nine visual diagnostic features when combined.
+See \jz{[ACES paper]} for a broader exploration of cartridge case similarity scoring algorithms.
+
+Using the \texttt{caret} R package \citep{caret}, we perform 10-fold cross-validation, repeated three times, to train each model.
+Ultimately, we choose the model that maximizes the area under the receiver operating characteristic (ROC) curve, abbreviated "AUC."
+We consider fitting each of the three classifier models to three subsets of the nine visual diagnostic features introduced in the last section: only the 4 full scan features, only the 5 cell-based features, and all 9 visual diagnostic features.
+This helps us understand the relative discriminatory power of the full scan an cell-based features, as well as their utility when combined.
+Finally, we also explore the use of up-sampling the matching comparisons and down-sampling the non-matching comparisons as a means of addressing the class imbalance in  the training and testing data.
+Note that this sub-sampling is performed within the re-sampling of the 10-fold cross-validation.
+For comparison, we also fit each model without any sub-sampling.
+In total, we train 27 models (3 classifiers $\times$ 3 feature groups $\times$ 3 sampling techniques) using the 10-fold, thrice-repeated cross-validation.
+
+\autoref{fig:visualDiag_rocPlt} shows ROC curve and AUC results for the 27 classifiers.
+Comparing first across models (columns), we see that the random forest and logistic regression models have notably higher AUC values compared to the decision tree (CART) models.
+In fact, the random forest model achieves perfect training classification, as evidenced by the AUC values equal to 1, when either no sampling is performed or the matching comparisons are up-sampled.
+It makes sense that the random forest performs better than the CART model, since a random forest consists of an ensemble of CART models.
+It is surprising that the logistic regression classifier performs comparable to the random forest due to its relative simplicity.
+Considering sub-sampling procedures (rows), we see that the behavior of the AUC differs across the three models.
+For the CART model, performing either sub-sampling techniques resulted in higher AUC values compared to no sampling.
+The random forest and logistic regression models are comparatively much more consistent.
+
+Finally, across feature groups (color) we see for the logistic regression and random forest models that the AUC is largest when all 9 visual diagnostic features are used.
+For the logistic regression model, training based on the 4 full scan features results in the lowest AUC values, followed by the 5 cell-based features, and finally all 9 features.
+Considering the feature distributions along the main diagonal of \autoref{fig:visualFeaturePairs}, we note that features including the cell-based different region correlation and average similarities vs. differences ratio appear to yield greater separation between matching and non-matching comparisons than the full scan versions of these features.
+For generalized linear models like the logistic regression classifier, it makes sense that the greater separation for the cell-based features would to better classification results over the full scan features.
+However, the fact that the random forest achieves an AUC of 1 based on both the full scan and cell-based features indicates that there is a non-linear decision boundary in both feature spaces that perfectly separates matches from non-matches.
+It isn't a surprise that training the random forest on the combined features also results in an AUC of 1.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=.7\textwidth]{images/visualDiag_rocPlt.png}
+\caption{ROC curves for three binary classifier models (columns) trained using three sampling schemes (rows) on three subsets of the 9 visual diagnostic features (color). Overall, the random forest models have the highest AUC, specifically achieving perfect training classification when either no sampling is performed or the matching comparisons are up-sampled. The logistic regression models perform second best and is relatively invariant to sub-sampling scheme. The decision tree (CART) models have considerably lower AUC values overall and are sensitive to sub-sampling scheme. For the random forest and logistic regression models, using all 9 visual diagnostic features leads to higher AUCs compared to the smaller subsets, except for when the AUCs are all 1.}
+\label{fig:visualDiag_rocPlt}
+\end{figure}
+
+Consider the distributions of training match probabilities shown in \autoref{fig:visualDiagProb_density}, distinguished by firearm ID pair.
+These match probabilities are computed using the random forest model trained on all 9 visual diagnostic features without any sub-sampling.
+We distinguish the 10 training firearm IDs by rows/columns, meaning the main diagonal plots show match probabilities for the truly matching comparisons while the off-diagonal plots show the same for non-matching comparisons.
+The horizontal axis for all plots represents the estimated match probability for all pairwise comparisons between scans from "Firearm 1" (columns) and scans from "Firearm 2" (rows).
+Note that we transform the horizontal axis according the density of a Beta(4,4) distribution under the canonical shape Beta distribution parameterization.
+Considering that we draw horizontal axis breaks (gray vertical lines) at $\{0, 0.25, .5, 0.75, 1\}$, this transformation causes a "stretching" of values near 0 and 1 and "contracting" of values near 0.5.
+We perform this transformation to provide a clearer visual of the match probabilities, which tend to "bunch up" near the extremes of the interval.
+The vertical axis represents the density of the match probabilities for the density plots in the main diagonal and upper-triangle.
+Because the pairwise match probability is invariant to which firearm is labeled "1" or "2," the box plots in the lower-triangle depict the same data in the upper-triangle.
+We combine the box plot and densities for the matching comparisons along the main diagonal.
+
+Considering the matching to non-matching distributions, we see that the match probabilities tend to be more variable than the non-match probabilities.
+For example, matching Firearm Z comparisons have associated match probabilities ranging from 0.6 to 1.0 with a median probability value of 0.8.
+Comparatively, the non-match comparisons are more strongly right-skewed - the classifier is more "sure" when a pair doesn't match.
+About 15\% (338 of 2,199) of all matching comparisons and 49\% (9693 of 19,756) of all non-matching comparisons have an assigned match probability of 1.0 and 0.0, respectively.
+In the case of the random forest classifier, this simply means that none of the constituent, ensembled decision tree classifiers "voted" for the incorrect class for these comparisons, but this further underscores the match vs. non-match imbalance.
+We considered the feature distributions of these specific comparisons and noted that they exhibited excellent separation in a few, key features - namely, the full scan and cell-based difference correlations - that the random forest also considered highly "important" as measured by the mean Gini Index decrease \citep{randomForest}.
+In contrast, matching comparisons from Firearm Z exhibit poorer separation in these important features compared to non-match comparisons, which explains the lower match probabilities in \autoref{fig:visualDiagProb_density}.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{images/visualDiagProb_density.png}
+\caption{Distribution of match probabilities estimated using a random forest classifier. We distinguish these probabilities by firearm ID pair, meaning each plot represents the pairwise comparisons in which one cartridge case originated from the "column" firearm and the other from the "row" firearm. Matching comparisons are represented along the main diagonal plots while non-match comparisons are shown in the off-diagonal.}
+\label{fig:visualDiagProb_density}
+\end{figure}
+
 \section{Discussion}
+
+\subsection{Case Studies}
+
+The phenomenon of classifier models not being as adept at identifying matching comparisons has been observed in many other cartridge evidence scoring methods \citep{song_proposed_2013,chen_convergence_2017}, \jz{[ACES paper]}.
+There are a variety of factors that may lead to this discrepancy, but one of the most important factors that we've identified is whether extraneous, non-breech face markings are correctly identified and removed during pre-processing.
+We have consistently noted that extreme values in a scan tend to heavily impact the registration procedure.
+For example, when applying the cell-based comparison procedure of \autoref{alg:cellComparison}, large markings in the target scan seem to "attract" source cells, even if those cells do not contain similar markings when visually compared.
+Diagnostic tools like the X3P and Comparison plots are useful for understanding why a cell registers in these areas.
+
+
+\jz{[Dive into specific examples of scans here. Look into scans with low/high match probability and why (specific feature tipping the scales? what do they look like visually/using the comparison plot? connect numeric summary above to a qualitative discussion of specific pairs based on visual diagnostics)]}
 
 \subsection{Sensitivity to Filter Threshold}
 
@@ -1199,7 +1265,27 @@ In this section, we describe basic functionality of the application.
 
 \end{description}
 
-%----------------------------------------------------------------------------------------
+%-----------------------------------------
+
+
+'
+
+
+dfdfdfddfsdfasdf
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------
 %	REFERENCE LIST
 %----------------------------------------------------------------------------------------
 
