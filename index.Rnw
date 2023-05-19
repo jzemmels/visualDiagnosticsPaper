@@ -398,65 +398,10 @@ Although the registrations are similar for both pairs of scans, the cross-correl
 We also note that removal of the extreme values makes it easier to visually identify similar markings between K002eG2 and K227iG3, such as the "striped" impressions at the top of the two scans.
 Highlighting such similarities is one of the strengths of the X3P plot.
 
-<<preProcessEffectExample_code, include=FALSE,cache=TRUE>>=
-
-# compare original scans
-barrelB_scan1_original <- x3ptools::x3p_read("data/K002eG2_original.x3p")
-barrelB_scan2_original <- x3ptools::x3p_read("data/K227iG3_original.x3p")
-barrelB_scan2_original <- x3ptools::x3p_interpolate(barrelB_scan2_original,resx = barrelB_scan1_original$header.info$incrementY)
-
-barrelB_originalComparison <- scored::comparison_fullScan(barrelB_scan1_original,
-                                                          barrelB_scan2_original) %>%
-  filter(direction == "reference_vs_target") %>%
-  filter(fft_ccf == max(fft_ccf))
-
-scan1_original_aligned <- barrelB_originalComparison$cellHeightValues[[1]]
-scan1_original_aligned$surface.matrix <-
-  barrelB_originalComparison$cellHeightValues[[1]]$surface.matrix*barrelB_originalComparison$cellHeightValues[[1]]$cmcR.info$scaleByVal + barrelB_originalComparison$cellHeightValues[[1]]$cmcR.info$centerByVal
-
-scan2_original_aligned <- barrelB_originalComparison$alignedTargetCell[[1]]
-scan2_original_aligned$surface.matrix <-
-  barrelB_originalComparison$alignedTargetCell[[1]]$surface.matrix*barrelB_originalComparison$alignedTargetCell[[1]]$cmcR.info$scaleByVal + barrelB_originalComparison$alignedTargetCell[[1]]$cmcR.info$centerByVal
-
-# compare scans with extra pre-processing
-barrelB_scan1_preProc <- x3ptools::x3p_read("data/K002eG2_processed.x3p")
-barrelB_scan2_preProc <- x3ptools::x3p_read("data/K227iG3_processed.x3p")
-barrelB_scan2_preProc <- x3ptools::x3p_interpolate(barrelB_scan2_preProc,resx = barrelB_scan1_preProc$header.info$incrementY)
-
-barrelB_preProcComparison <- scored::comparison_fullScan(barrelB_scan1_preProc,
-                                                         barrelB_scan2_preProc) %>%
-  filter(direction == "reference_vs_target") %>%
-  filter(fft_ccf == max(fft_ccf))
-
-scan1_preProc_aligned <- barrelB_preProcComparison$cellHeightValues[[1]]
-scan1_preProc_aligned$surface.matrix <-
-  barrelB_preProcComparison$cellHeightValues[[1]]$surface.matrix*barrelB_preProcComparison$cellHeightValues[[1]]$cmcR.info$scaleByVal + barrelB_preProcComparison$cellHeightValues[[1]]$cmcR.info$centerByVal
-
-scan2_preProc_aligned <- barrelB_preProcComparison$alignedTargetCell[[1]]
-scan2_preProc_aligned$surface.matrix <-
-  barrelB_preProcComparison$alignedTargetCell[[1]]$surface.matrix*barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$scaleByVal + barrelB_preProcComparison$alignedTargetCell[[1]]$cmcR.info$centerByVal
-
-plt1 <- impressions::x3pPlot(scan1_original_aligned,scan2_original_aligned,
-                             x3pNames = c("K002eG2 Original","K227iG3 Original"),
-                             legend.quantiles = c(0,.01,.5,.99,1),
-                             legendLength = 10) +
-  labs(caption = paste0("CCF: ",round(barrelB_originalComparison$fft_ccf,2))) +
-  theme(plot.caption = element_text(hjust = .5))
-
-plt2 <- impressions::x3pPlot(scan1_preProc_aligned,scan2_preProc_aligned,
-                             x3pNames = c("K002eG2 + Additional Pre-processing","K227iG3 + Additional Pre-processing"),
-                             legend.quantiles = c(0,.01,.5,.99,1),
-                             legendLength = 10) +
-  labs(caption = paste0("CCF: ",round(barrelB_preProcComparison$fft_ccf,2))) +
-  theme(plot.caption = element_text(hjust = .5))
-
-ggsave(plot = {patchwork::wrap_plots(plt1,plt2,ncol = 1)},filename = "figures/preProcessEffectExample.png")
-@
-
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=.8\textwidth]{figures/preProcessEffectExample.png}
+\includegraphics[width=.8\textwidth]{images/preProcessEffectExample.png}
 \caption{Registration results from comparing two versions of a matching pair of cartridge case scans. In the first comparison (top), extraneous values are left in the scan which causes the overall $CCF_{\max}$ value to be relatively low (0.14). When these values are removed (bottom), the CCF value more than doubles to 0.29. The X3P plot is useful for identifying scans that are in need of additional pre-processing.}
 \label{fig:preProcessEffectExample}
 \end{figure}
@@ -1039,7 +984,7 @@ In the next section, we explore their use as numerical features to distinguish b
 
 \section{Statistical Learning from Visual Diagnostics}
 
-In this section, we explore using the Visual Diagnostic Features discussed above as features to differentiate between matching and non-matching comparisons.
+In this section, we explore using the visual diagnostic statistics discussed above as features in a statistical classifier model to differentiate between matching and non-matching comparisons.
 We consider a data set of 210 cartridge cases scanned at the Roy J. Carver High Resolution Microscopy Facility at Iowa State University that were collected as part of a study by \citep{Baldwin}.
 The researchers fired the Remington 9mm centerfire cartridge cases from 10 Ruger SR9 pistols.
 We scanned these cartridge cartridge cases using the Cadre$^{\text{TM}}$ 3D-TopMatch High Capacity Scanner.
@@ -1117,16 +1062,16 @@ We calculate the \textbf{average cell-based differences correlation} across all 
 
 \autoref{fig:visualFeaturePairs} shows a "generalized pairs plot" \citep{gpp, ggally} of the 9 visual diagnostic features distinguished by the ground-truth nature of the comparisons for the 21,945 training comparisons.
 The ground truth is represented by the left column/top row of the plot.
-We see in the bar plot in top left corner that there are 19,756 non-matching comparisons to 2,199 matching comparisons.
+The bar plot in top left corner shows there are 19,756 non-matching comparisons to 2,199 matching comparisons.
 This imbalance is due to the fact that we consider every pairwise comparison between cartridge cases from 10 training firearms.
 
-The other visuals in the first row show box plots of the 9 features, which complement the density plots along the main diagonal of each feature as well as the un-normalized histograms in the first column.
+The other visuals in the first column show box plots of the 9 features, which complement the density plots along the main diagonal of each feature as well as the un-normalized histograms in the first row.
 Although these three visuals depict the same data, they convey different information about the data.
 For example, the density plots in the main diagonal show the estimated conditional distributions of the 9 features given ground-truth, which gives us intuition about the discriminative nature of the features.
 The cell-based average different region correlation, denoted $\overline{cor}_{\text{cell, diff}}$ in the previous section, has greater separation between the matching and non-matching distributions compared to the cell based average different region size, $\overline{|S|}_{\text{cell}}$ in the last section.
 The histograms in the first column convey similar information as the density plots, yet emphasize the class imbalance between the matching and non-matching comparisons.
 
-On the other hand, the box plots in the first row provide a more succinct summary of rank statistics and outliers for each feature.
+On the other hand, the box plots in the first column provide a more succinct summary of rank statistics and outliers for each feature.
 For example, we see that the full scan average different region size feature, $\overline{|S|}_{\text{full}}$, has an extreme non-match outlier with a value over 700.
 \jz{[More to say about this specific outlier? Look up example and talk about why it's an outlier]}
 
@@ -1135,16 +1080,22 @@ For example, we see that the full scan average different region size feature, $\
 
 Barring the first row/column, the off-diagonal visuals show summaries of the pairwise relationships between the 9 features.
 This provides us with intuition on which features "share" information.
-The lower-triangle visuals show scatterplots for each pair of features with each point representing a single pairwise comparison while the upper-triangle shows correlation summaries between each feature, also distinguished by ground-truth.
-We see that the variables with the strongest relationship are the average and standard deviation of the cell-based similarities vs. differences ratio, $\bar{r}_{\text{cell}}$ and $s_{\text{cell},r}$ in the previous section, although their seemingly quadratic relationship is expected.
-We see a similar, albeit more linear, relationship between the average and standard deviation of the cell-based region sizes.
+The lower-triangle visuals show density plots for each pair of features.
+We visualize the 50th, 80th, and 95th percentile highest-density regions for the matching and non-matching comparisons using concentric, progressively lighter regions.
+This density visualization helps us understand where most of the matching and non-matching feature values lie without needing to visualize every pairwise comparison as a single point.
+Instead, we visualize only those comparisons outside of the 95th highest-density region, which makes it easier to identify outliers.
+The upper-triangle shows correlation summaries between each feature, also distinguished by ground-truth.
+We see that the variables with the strongest relationship are the average and standard deviation of the cell-based similarities vs. differences ratio (7th column, 8th row), denoted $\bar{r}_{\text{cell}}$ and $s_{\text{cell},r}$ in the previous section, although the relationship isn't surprising given the mathematical relationship between the two statistics.
+We see a similar, albeit more linear, relationship between the average and standard deviation of the cell-based region sizes (9th column, 10th row).
 
 There are also notable relationships between full scan and cell-based features.
-For example, the relationship between full scan and cell-based different region correlations, $cor_{\text{full, diff}}$ and $cor_{\text{cell, diff}}$, is particularly strong for the matching compared to non-matching comparisons as evidenced by the starkly different correlations of 0.775 and 0.358, respectively.
+For example, the relationship between full scan and cell-based different region correlations (2nd column, 6th row), denoted $cor_{\text{full, diff}}$ and $cor_{\text{cell, diff}}$, is particularly strong for the matching compared to non-matching comparisons as evidenced by the starkly different correlations of 0.775 and 0.358, respectively.
 A pair of non-matching scans may have differences that vary in a similar manner at one scale, but not another.
 This could be an artifact of how matching and non-matching comparisons behave during the the full scan and cell-based registration procedures.
 For example, the full scan vs. cell-based estimated registrations from a matching comparison are more likely to agree, meaning the same markings are overlaid on top of one another at both scales.
-On the other hand, we wouldn't expect the full scan and cell-based registrations to agree for a non-matching comparison, so different markings may be compared at the two scales.
+On the other hand, we wouldn't expect the full scan and cell-based registrations to agree for a non-matching comparison, so different markings may be compared at the full scan and cell-based scales.
+For some feature pairs, such as the full scan different region correlation and the standard deviation of the full scan different region size (2nd column, 4th row), the differing behavior of the matching and non-matching joint distributions suggests a higher-order interaction between these features.
+This can be incorporated explicitly into a statistical classifier model like a logistic regression or can be "captured" in models like a decision tree or random forest \citep{hastie_elements_2008}.
 
 \begin{figure}[!htbp]
 \centering
@@ -1225,18 +1176,107 @@ In contrast, matching comparisons from Firearm Z exhibit poorer separation in th
 
 \subsection{Case Studies}
 
+In this section, we explore specific examples of cartridge case comparisons to understand the relationship between qualitative observations we can make using the visual diagnostic tools and the quantitative measures of similarity we obtain from a binary classifier.
 The phenomenon of classifier models not being as adept at identifying matching comparisons has been observed in many other cartridge evidence scoring methods \citep{song_proposed_2013,chen_convergence_2017}, \jz{[ACES paper]}.
 There are a variety of factors that may lead to this discrepancy, but one of the most important factors that we've identified is whether extraneous, non-breech face markings are correctly identified and removed during pre-processing.
 We have consistently noted that extreme values in a scan tend to heavily impact the registration procedure.
 For example, when applying the cell-based comparison procedure of \autoref{alg:cellComparison}, large markings in the target scan seem to "attract" source cells, even if those cells do not contain similar markings when visually compared.
 Diagnostic tools like the X3P and Comparison plots are useful for understanding why a cell registers in these areas.
 
+We return to the pair of matching cartridge cases shown in \autoref{fig:preProcessEffectExample}.
+Recall that we computed the cross-correlation function (CCF) between these scans before and after extraneous, non-breech face observations were left in the scans.
+Removing the non-breech face impressions made it easier to visually identify similar impressions between the two scans and increased the CCF value, implying higher similarity.
+We now consider the similarity score for between these two scans estimated using the random forest binary classifier.
+The left side of \autoref{fig:firearmG_preprocessAlignedCell} shows the cell-wise registrations for this comparison using K002eG2 as reference and K227iG3 as target.
+Similar to \autoref{fig:preProcessEffectExample}, the top and bottom show results from two cases: before and after removing the non-breech face observations from the two scans.
+Estimating a similarity between these two scans using the "no sampling," "all features" random forest classifier results in similarity scores of 0.66 and 1.00, respectively, for these two cases.
 
-\jz{[Dive into specific examples of scans here. Look into scans with low/high match probability and why (specific feature tipping the scales? what do they look like visually/using the comparison plot? connect numeric summary above to a qualitative discussion of specific pairs based on visual diagnostics)]}
+The source cells align in a more grid-like pattern in "K227iG3 + Additional Pre-processing" than in "K227iG3 Original", where the extreme values along the inner rim seem to "pull" cells towards the center.
+Cells like 1, 1 or 1, 4 do not register in a grid-like pattern in either case, although the registration in the "Additional Pre-processing" case is easier to justify as being due to the removal of observations in that region of K227iG3.
+We would rather a registration fail due to a lack of shared information between the two scans than due to spurious similarities between extreme values.
+As a specific example, we we depict the comparison plot for cell 3, 4 with its aligned mate in the target scan on the right side of \autoref{fig:firearmG_preprocessAlignedCell}.
+In the "original" case, we see that cell aligns to the non-breech face values along the inner rim of K227iG3.
+The filtered element-wise average between these cells actually does uncover some similarities, such as the faint orange values on the upper-right side of the two scans, yet these are insignificant compared to the large dissimilar regions in the center of the cells.
+In contrast, the similarities are much more obvious in the "Additional Pre-processing" case based on the deeper purple/orange shades in the filtered element-wise average plot.
+Further, careful study of the filtered differences between these cells shows that there are similar trends between the different regions of these scans, which upholds the use of the "differences correlation" feature.
+
+This example demonstrates how the visual diagnostic tools both corroborate and inform the results from a trained classifier model.
+Both the visual diagnostics and algorithm-based similarity score indicate that the original versions of the scans are not particularly similar.
+However, only the visual diagnostics indicate that the dissimilarity is due to the presence of observations that "distract" the algorithm from comparing the actual breech face markings.
+Upon removing these observations, both the visual diagnostics and similarity score reflect the similarity between the breech face impressions.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{images/firearmG_preprocessAlignedCell.png}
+\caption{Aligned cells from the matching comparison shown in \autoref{fig:preProcessEffectExample}. On the top, non-breech face values are left in the scan, which leads to poor alignment of cells and an overall low similarity score (0.66). On the bottom, we remove the non-breech values, which leads to improved alignment and a higher similarity score (1.00). In both cases, we show the comparison plot for cell 3, 4 and note that similar markings are more easily identified once the extraneous observations are removed. This illustrates how removing "distracting" values from the cartridge case scans during pre-processing can improve downstream similarity results.}
+\label{fig:firearmG_preprocessAlignedCell}
+\end{figure}
+
+Next, we consider cartridge cases pairs that exhibited behavior in their similarity scores.
+Specifically, we consider the matching and non-matching comparisons with the smallest and largest associated similarity score, respectively, as computed by the "no sampling," "all features" random forest model.
+These examples help us understand conditions under which the algorithm doesn't behave as desired.
+The first row of \autoref{fig:extremeProbExampleScans} shows matching K011sR1 and K046uR2 that have an estimated similarity score of 0.59.
+The second row of \autoref{fig:extremeProbExampleScans} shows non-matching K013pC1 and K027gA3 that have an estimated similarity score of 0.38.
+Compared to the matching comparison between K002eG2 and K227iG3, it is harder to identify similar, distinctive impressions for these two pairs.
+For example, the surfaces of both K011sR1 and K046uR2 appear more mottled with small-scale markings than imprinted with large striations like those visible in K002eG2 and K227iG3.
+There are some striated markings visible in the north-east corner of scan K027gA3, but the same region in K013pC1 has only a thin strip of observations.
+As such, there isn't enough shared information in this region to say confidently that the impressions are similar or different.
+The remaining surface of these two scans are similar to K011sR1 and K046uR2 in that there aren't particularly distinctive markings.
+A case could be made to apply additional pre-processing to remove the arc of orange and purple values along the south to south-west outer edge in K046uR2, but we don't expect the results to change drastically.
+
+<<include=FALSE>>=
+K011sR1 <- x3ptools::x3p_read("data/K011sR1.x3p")
+K046uR2 <- x3ptools::x3p_read("data/K046uR2.x3p")
+K013pC1 <- x3ptools::x3p_read("data/K013pC1.x3p")
+K027gA3 <- x3ptools::x3p_read("data/K027gA3.x3p")
+
+plt1 <- x3pPlot(K011sR1,K046uR2,
+                x3pNames = c("K011sR1","K046uR2"),
+                legendLength = grid::unit(4, "in"))
+plt2 <- x3pPlot(K013pC1,K027gA3,
+                x3pNames = c("K013pC1","K027gA3"),
+                legendLength = grid::unit(4, "in"))
+
+plt <- plt1 / plt2
+ggsave(plot = plt,filename = "figures/extremeProbExampleScans.png",height = 10,width = 10)
+knitr::plot_crop("figures/extremeProbExampleScans.png")
+@
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=.7\textwidth]{figures/extremeProbExampleScans.png}
+\caption{In the first row, we show the pair of matching scans with a low similarity score of 0.59. In the second row, we show a pair of non-match scans with a relatively high similarity score of 0.38. In both cases, the associated similarity scores seem attributable not to definite similarities or dissimilarities, but instead to a lack of distinctive markings.}
+\label{fig:extremeProbExampleScans}
+\end{figure}
+
+As further support for the middling similarity scores for these two pairs, consider \autoref{fig:visualDiag_extremeProb_featureDensities} that shows numerical feature and score values for the 21,945 comparisons considered in the last section.
+On the left, we visualize the densities for the 9 visual diagnost feature values - these are the same as the densities shown in \autoref{fig:visualFeaturePairs}.
+On the right, we visualize the similarity score densities - this is a combination of the densities shown in \autoref{fig:visualDiagProb_density}.
+On top of each density plot, we visualize the value associated with the two pairs considered in \autoref{fig:extremeProbExampleScans} as an orange (match) and black (non-match) line.
+This visual allows us to compare the feature values of these specific match and non-match pairs to each other and to the rest of the 21,943 pairwise comparisons.
+
+We see that many feature values associated with these pairs fall between or around the modes of the matching and non-matching densities, which suggests that none of the features clearly exhibit the behavior of a matching or non-matching comparison.
+The two pairs are "unexceptional" based on these features, which explains why the are assigned similarity scores close to  the middle of the interval.
+Interestingly, if we compare the two lines to each other across the various feature densities, we see that the non-match comparison between K013pC1 and K027gA3 has feature values more similar to a match comparison than the actually matching comparison between K011sR1 and K046uR2.
+For example, we expect the cell-based average different region correlation (top-left) to be large if two cartridge cases match.
+In this instance, however, the non-match comparison has a larger associated correlation value, 0.26, than that of the match comparison, 0.22.
+Only for the cell-based average difference region size (top-center) and the standard deviation of the full scan difference region sizes (bottom-center) does the match comparison "look" more like a match comparison.
+Despite this, the similarity score associated with the match comparisons is still larger than that of the non-match comparison.
+This suggests the existence of higher-order interactions between these 9 features that aren't obvious from a one-dimensional density plot, but that can be "learned" by the random forest classifier model.
+For example, the lower-diagonal of the pairs plot in \autoref{fig:visualFeaturePairs} shows the pairwise relationship of some features differs for matching vs. non-matching comparisons.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{images/visualDiag_extremeProb_featureDensities.png}
+\caption{Density plots of 9 visual diagnostic features (left) and estimated similarity score (right) for 21,945 pairwise comparisons, distinguished by match and non-match comparisons. On top of each plot, we visualize the values associated with the two cartridge case pairs shown in \autoref{fig:extremeProbExampleScans}. We see that the feature values for these two pairs fall close to the intersection of the match and non-match densities, which suggests the cartridge cases are fairly unexceptional. This explains the middling similarity scores observed in the right plot.}
+\label{fig:visualDiag_extremeProb_featureDensities}
+\end{figure}
 
 \subsection{Sensitivity to Filter Threshold}
 
+In this section, we discuss how sensitive the final similarity scores are to the filter threshold $\tau$ used to partition two cartridge cases into "similarities" and "differences."
 
+\jz{[Final results don't seem heavily impacted using different multiples of the absolute difference standard deviation. Interestingly, the importance measure of the 9 features rearrange when we use the standard deviation of the "pooled" surface values.]}
 
 \subsection{Interactive cartridgeInvestigatR application}
 
@@ -1245,6 +1285,10 @@ The application is accessible at \url{https://csafe.shinyapps.io/cartridgeInvest
 In this section, we describe basic functionality of the application.
 
 \section{Conclusion}
+
+\jz{[Algorithms rarely have built-in mechanisms to determine when they work as expected. Diagnostic tools fill this gap. Visual diagnostics specifically provide intuitive ways to interpret the behavior of the algorithm. The visual diagnostics we developed can be used both as a quick reference to determine whether changes to earlier stages of the pipeline are warranted and as a tool to carefully study the behavior of the algorithm.]}
+
+\jz{[We note that the workflow of dealing with such cartridge cases in practice would be iteratively applying pre-processing steps followed by using the visual diagnostic tools to ensure that the pre-processing removes as much extraneous information from the scans as possible.]}
 
 %----------------------------------------------------------------------------------------
 %	REFERENCE LIST
@@ -1266,23 +1310,6 @@ In this section, we describe basic functionality of the application.
 \end{description}
 
 %-----------------------------------------
-
-
-'
-
-
-dfdfdfddfsdfasdf
-
-
-
-
-
-
-
-
-
-
-
 
 
 -----------------------------------------------
